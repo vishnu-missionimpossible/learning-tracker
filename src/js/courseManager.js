@@ -1,16 +1,25 @@
 /**
- * Course Manager Module
- * Handles CRUD operations for courses
+ * Course Manager Module - FIXED VERSION
+ * Handles CRUD operations for courses with better error handling
  */
 
 const CourseManager = {
+    isCreating: false, // Prevent duplicate submissions
+
     /**
      * Create new course
      * @param {Object} courseData - Course details
      * @returns {Promise} - Firestore promise
      */
     createCourse: async (courseData) => {
+        // Prevent duplicate submissions
+        if (CourseManager.isCreating) {
+            Utils.showError('Creating course... Please wait');
+            return;
+        }
+
         try {
+            CourseManager.isCreating = true;
             const userId = AuthModule.getCurrentUser().uid;
 
             if (!courseData.courseName || !courseData.courseName.trim()) {
@@ -19,6 +28,8 @@ const CourseManager = {
             if (!courseData.startDate) {
                 throw new Error('Start date is required');
             }
+
+            console.log('Creating course with data:', courseData);
 
             const course = {
                 userId: userId,
@@ -32,11 +43,22 @@ const CourseManager = {
             };
 
             const docRef = await db.collection('courses').add(course);
-            Utils.showSuccess('Course created successfully!');
+            console.log('✓ Course created with ID:', docRef.id);
+
+            Utils.showSuccess('✓ Course created successfully!');
+
+            // Wait a bit for the success message to show
+            setTimeout(() => {
+                AppController.showCourses();
+            }, 1000);
+
             return { id: docRef.id, ...course };
         } catch (error) {
-            Utils.showError(error.message);
+            console.error('Error creating course:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
+        } finally {
+            CourseManager.isCreating = false;
         }
     },
 
@@ -53,12 +75,14 @@ const CourseManager = {
                 .orderBy('createdAt', 'desc')
                 .get();
 
+            console.log('Fetched', snapshot.docs.length, 'courses');
             return snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
         } catch (error) {
             console.error('Error fetching courses:', error);
+            Utils.showError('Error loading courses: ' + error.message);
             return [];
         }
     },
@@ -77,6 +101,7 @@ const CourseManager = {
             return { id: doc.id, ...doc.data() };
         } catch (error) {
             console.error('Error fetching course:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
         }
     },
@@ -91,9 +116,10 @@ const CourseManager = {
         try {
             updates.updatedAt = new Date();
             await db.collection('courses').doc(courseId).update(updates);
-            Utils.showSuccess('Course updated successfully!');
+            Utils.showSuccess('✓ Course updated successfully!');
         } catch (error) {
-            Utils.showError(error.message);
+            console.error('Error updating course:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
         }
     },
@@ -110,10 +136,16 @@ const CourseManager = {
                     isActive: false,
                     updatedAt: new Date()
                 });
-                Utils.showSuccess('Course deleted successfully!');
+                console.log('✓ Course deleted');
+                Utils.showSuccess('✓ Course deleted successfully!');
+
+                setTimeout(() => {
+                    AppController.showCourses();
+                }, 800);
             }
         } catch (error) {
-            Utils.showError(error.message);
+            console.error('Error deleting course:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
         }
     }

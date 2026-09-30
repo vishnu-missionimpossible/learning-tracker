@@ -1,16 +1,25 @@
 /**
- * Metrics Manager Module
- * Handles CRUD operations for learning metrics
+ * Metrics Manager Module - FIXED VERSION
+ * Handles CRUD operations for learning metrics with better error handling
  */
 
 const MetricsManager = {
+    isAdding: false, // Prevent duplicate submissions
+
     /**
      * Add learning metric entry
      * @param {Object} metricData - Metric details
      * @returns {Promise} - Firestore promise
      */
     addMetric: async (metricData) => {
+        // Prevent duplicate submissions
+        if (MetricsManager.isAdding) {
+            Utils.showError('Adding entry... Please wait');
+            return;
+        }
+
         try {
+            MetricsManager.isAdding = true;
             const userId = AuthModule.getCurrentUser().uid;
 
             if (!metricData.courseId) {
@@ -22,6 +31,8 @@ const MetricsManager = {
             if (!metricData.status) {
                 throw new Error('Status is required');
             }
+
+            console.log('Adding metric with data:', metricData);
 
             const metric = {
                 userId: userId,
@@ -36,11 +47,22 @@ const MetricsManager = {
             };
 
             const docRef = await db.collection('metrics').add(metric);
-            Utils.showSuccess('Metric added successfully!');
+            console.log('✓ Metric added with ID:', docRef.id);
+
+            Utils.showSuccess('✓ Entry added successfully!');
+
+            // Wait a bit for the success message to show
+            setTimeout(() => {
+                AppController.openCourse(metricData.courseId);
+            }, 1000);
+
             return { id: docRef.id, ...metric };
         } catch (error) {
-            Utils.showError(error.message);
+            console.error('Error adding metric:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
+        } finally {
+            MetricsManager.isAdding = false;
         }
     },
 
@@ -58,12 +80,14 @@ const MetricsManager = {
                 .orderBy('date', 'desc')
                 .get();
 
+            console.log('Fetched', snapshot.docs.length, 'metrics for course');
             return snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
         } catch (error) {
             console.error('Error fetching metrics:', error);
+            Utils.showError('Error loading metrics: ' + error.message);
             return [];
         }
     },
@@ -87,6 +111,8 @@ const MetricsManager = {
             const consistency = Utils.calculateConsistency(completed, totalDays);
             const totalMinutes = relevantMetrics.reduce((sum, m) => sum + (m.duration || 0), 0);
 
+            console.log('Course stats:', { completed, missed, totalDays, consistency });
+
             return {
                 completed,
                 missed,
@@ -97,6 +123,7 @@ const MetricsManager = {
             };
         } catch (error) {
             console.error('Error calculating stats:', error);
+            Utils.showError('Error calculating stats: ' + error.message);
             return {
                 completed: 0,
                 missed: 0,
@@ -118,9 +145,10 @@ const MetricsManager = {
         try {
             updates.updatedAt = new Date();
             await db.collection('metrics').doc(metricId).update(updates);
-            Utils.showSuccess('Metric updated successfully!');
+            Utils.showSuccess('✓ Entry updated successfully!');
         } catch (error) {
-            Utils.showError(error.message);
+            console.error('Error updating metric:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
         }
     },
@@ -134,10 +162,16 @@ const MetricsManager = {
         try {
             if (confirm('Are you sure you want to delete this entry?')) {
                 await db.collection('metrics').doc(metricId).delete();
-                Utils.showSuccess('Metric deleted!');
+                console.log('✓ Metric deleted');
+                Utils.showSuccess('✓ Entry deleted!');
+
+                setTimeout(() => {
+                    AppController.openCourse(UIModule.currentCourseId);
+                }, 800);
             }
         } catch (error) {
-            Utils.showError(error.message);
+            console.error('Error deleting metric:', error);
+            Utils.showError('Error: ' + error.message);
             throw error;
         }
     }
