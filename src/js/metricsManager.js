@@ -77,14 +77,12 @@ const MetricsManager = {
             const snapshot = await db.collection('metrics')
                 .where('userId', '==', userId)
                 .where('courseId', '==', courseId)
-                .orderBy('date', 'desc')
                 .get();
 
             console.log('Fetched', snapshot.docs.length, 'metrics for course');
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+            return snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
         } catch (error) {
             console.error('Error fetching metrics:', error);
             Utils.showError('Error loading metrics: ' + error.message);

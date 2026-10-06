@@ -72,14 +72,13 @@ const CourseManager = {
             const snapshot = await db.collection('courses')
                 .where('userId', '==', userId)
                 .where('isActive', '==', true)
-                .orderBy('createdAt', 'desc')
                 .get();
 
             console.log('Fetched', snapshot.docs.length, 'courses');
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+            const toMs = (t) => (t && t.toMillis ? t.toMillis() : new Date(t || 0).getTime());
+            return snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
         } catch (error) {
             console.error('Error fetching courses:', error);
             Utils.showError('Error loading courses: ' + error.message);
