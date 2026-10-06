@@ -41,7 +41,7 @@ const AuthModule = {
                 updatedAt: new Date()
             });
 
-            Utils.showSuccess('Account created successfully!');
+            Utils.showSuccess(Fun.msg('signup'));
             return result.user;
         } catch (error) {
             Utils.showError(error.message);
@@ -62,7 +62,7 @@ const AuthModule = {
             }
 
             const result = await auth.signInWithEmailAndPassword(email, password);
-            Utils.showSuccess('Logged in successfully!');
+            Utils.showSuccess(Fun.msg('login'));
             return result.user;
         } catch (error) {
             Utils.showError(error.message);
@@ -78,7 +78,7 @@ const AuthModule = {
         try {
             await auth.signOut();
             AuthModule.currentUser = null;
-            Utils.showSuccess('Logged out successfully');
+            Utils.showSuccess(Fun.msg('logout'));
         } catch (error) {
             Utils.showError(error.message);
             throw error;

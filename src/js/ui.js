@@ -14,14 +14,14 @@ const UIModule = {
         document.getElementById('app-root').innerHTML = `
             <div class="auth-container">
                 <div class="auth-header">
-                    <h1>📚 Learning Tracker</h1>
-                    <p>Track your learning journey by courses</p>
+                    <h1><span class="wiggle">📚</span> Learning Tracker</h1>
+                    <p>${Fun.pick(Fun.taglines)}</p>
                 </div>
 
                 <div id="authError" class="alert alert-error"></div>
 
                 <div id="signupForm" class="auth-form">
-                    <h2>Create Account</h2>
+                    <h2>Join the Brain Gym 🏋️</h2>
                     <div class="form-group">
                         <label>Email</label>
                         <input type="email" id="signupEmail" placeholder="your@email.com">
@@ -30,15 +30,15 @@ const UIModule = {
                         <label>Password</label>
                         <input type="password" id="signupPassword" placeholder="At least 6 characters">
                     </div>
-                    <button class="btn btn-primary" onclick="AppController.signup()">Sign Up</button>
+                    <button class="btn btn-primary" onclick="AppController.signup()">Let's Go! 🚀</button>
                     <p class="form-footer">
-                        Already have account?
+                        Already part of the squad?
                         <a href="#" onclick="UIModule.toggleAuthForms()">Sign In</a>
                     </p>
                 </div>
 
                 <div id="loginForm" class="auth-form" style="display: none;">
-                    <h2>Sign In</h2>
+                    <h2>Welcome back, legend 🦸</h2>
                     <div class="form-group">
                         <label>Email</label>
                         <input type="email" id="loginEmail" placeholder="your@email.com">
@@ -47,7 +47,7 @@ const UIModule = {
                         <label>Password</label>
                         <input type="password" id="loginPassword" placeholder="Your password">
                     </div>
-                    <button class="btn btn-primary" onclick="AppController.signin()">Sign In</button>
+                    <button class="btn btn-primary" onclick="AppController.signin()">Back to Learning 🎓</button>
                     <p class="form-footer">
                         New user?
                         <a href="#" onclick="UIModule.toggleAuthForms()">Create Account</a>
@@ -74,16 +74,16 @@ const UIModule = {
         document.getElementById('app-root').innerHTML = `
             <div class="main-container">
                 <div class="header">
-                    <h1>📚 Create New Course</h1>
+                    <h1>🗺️ Start a New Adventure</h1>
                     <button class="btn btn-secondary" onclick="AppController.showCourses()">← Back to Courses</button>
                 </div>
 
                 <div class="content">
                     <div class="form-section">
-                        <h2>Course Details</h2>
+                        <h2>What are we conquering? 🏔️</h2>
                         <div class="form-group">
                             <label>Course Name *</label>
-                            <input type="text" id="courseName" placeholder="e.g., Python Development">
+                            <input type="text" id="courseName" placeholder="e.g., Python (snakes not included) 🐍">
                         </div>
                         <div class="form-group">
                             <label>Description</label>
@@ -99,7 +99,7 @@ const UIModule = {
                                 <input type="text" id="endDate" class="datepicker" placeholder="Select date">
                             </div>
                         </div>
-                        <button class="btn btn-primary" onclick="AppController.createCourse()">Create Course</button>
+                        <button class="btn btn-primary" onclick="AppController.createCourse()">Unlock Course 🔓</button>
                     </div>
                 </div>
             </div>
@@ -116,7 +116,7 @@ const UIModule = {
             <div class="course-card">
                 <div class="course-header">
                     <h3>${course.courseName}</h3>
-                    <span class="badge">${Utils.calculateDaysElapsed(course.startDate)} days</span>
+                    <span class="badge">🔥 ${Utils.calculateDaysElapsed(course.startDate)} days in</span>
                 </div>
                 <p class="course-desc">${course.description || 'No description'}</p>
                 <div class="course-dates">
@@ -124,7 +124,7 @@ const UIModule = {
                     ${course.endDate ? `<small>Ends: ${Utils.formatDate(course.endDate)}</small>` : ''}
                 </div>
                 <div class="course-actions">
-                    <button class="btn btn-primary" onclick="AppController.openCourse('${course.id}')">Open Course</button>
+                    <button class="btn btn-primary" onclick="AppController.openCourse('${course.id}')">Continue Quest ⚔️</button>
                     <button class="btn btn-secondary" onclick="AppController.deleteCourse('${course.id}')">Delete</button>
                 </div>
             </div>
@@ -134,11 +134,11 @@ const UIModule = {
             <div class="main-container">
                 <div class="header">
                     <div>
-                        <h1>📚 My Learning Courses</h1>
-                        <span class="user-email">${AuthModule.getCurrentUser().email}</span>
+                        <h1>🎒 My Learning Adventures</h1>
+                        <span class="user-email">${Fun.pick(Fun.greetings)} &middot; ${AuthModule.getCurrentUser().email}</span>
                     </div>
                     <div class="header-actions">
-                        <button class="btn btn-primary" onclick="AppController.showCourseSetup()">+ New Course</button>
+                        <button class="btn btn-primary" onclick="AppController.showCourseSetup()">+ New Adventure ✨</button>
                         <button class="btn btn-secondary" onclick="AppController.logout()">Logout</button>
                     </div>
                 </div>
@@ -146,8 +146,9 @@ const UIModule = {
                 <div class="content">
                     ${courses.length === 0 ? `
                         <div class="empty-state">
-                            <p>No courses yet. Create your first course to start tracking!</p>
-                            <button class="btn btn-primary" onclick="AppController.showCourseSetup()">Create First Course</button>
+                            <div class="empty-emoji">🦉</div>
+                            <p>It's quiet in here... too quiet. Start your first course and let the learning begin!</p>
+                            <button class="btn btn-primary" onclick="AppController.showCourseSetup()">Create First Course 🚀</button>
                         </div>
                     ` : `
                         <div class="courses-grid">
@@ -193,29 +194,31 @@ const UIModule = {
                 </div>
 
                 <div class="content">
+                    <div class="mood-banner"><span class="mood-emoji">${Fun.mood(stats.consistency, stats.totalEntries).emoji}</span> ${Fun.mood(stats.consistency, stats.totalEntries).text}</div>
+
                     <!-- Statistics Cards -->
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-value">${stats.consistency}%</div>
-                            <div class="stat-label">Consistency</div>
+                            <div class="stat-label">Consistency 🔥</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-value">${stats.completed}</div>
-                            <div class="stat-label">Completed Days</div>
+                            <div class="stat-label">Wins 🏆</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-value">${stats.totalDays}</div>
-                            <div class="stat-label">Total Days</div>
+                            <div class="stat-label">Days on the Journey 🗓️</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-value">${stats.totalMinutes}</div>
-                            <div class="stat-label">Total Minutes</div>
+                            <div class="stat-label">Minutes of Brain Gains ⏱️</div>
                         </div>
                     </div>
 
                     <!-- Add Metric Form -->
                     <div class="form-section">
-                        <h2>Log Learning Activity</h2>
+                        <h2>What did your brain do today? 🧠</h2>
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Date *</label>
@@ -225,8 +228,8 @@ const UIModule = {
                                 <label>Status *</label>
                                 <select id="metricStatus">
                                     <option value="">Select status</option>
-                                    <option value="Done">Done</option>
-                                    <option value="Missed">Missed</option>
+                                    <option value="Done">Done 🎉</option>
+                                    <option value="Missed">Missed (we forgive you) 🫶</option>
                                 </select>
                             </div>
                         </div>
@@ -237,21 +240,21 @@ const UIModule = {
                             </div>
                             <div class="form-group">
                                 <label>Topic</label>
-                                <input type="text" id="metricTopic" placeholder="e.g., Functions & Loops">
+                                <input type="text" id="metricTopic" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
                             </div>
                         </div>
                         <div class="form-group full">
                             <label>Notes</label>
                             <textarea id="metricNotes" placeholder="Add any notes" rows="2"></textarea>
                         </div>
-                        <button class="btn btn-primary" onclick="AppController.addMetric('${course.id}')">Add Entry</button>
+                        <button class="btn btn-primary" onclick="AppController.addMetric('${course.id}')">Log It! ✅</button>
                     </div>
 
                     <!-- Metrics Table -->
                     <div class="form-section">
-                        <h2>Learning History</h2>
+                        <h2>Your Hall of Fame 🏛️</h2>
                         ${metrics.length === 0 ? `
-                            <p style="text-align: center; color: #999;">No entries yet. Start logging your learning!</p>
+                            <p style="text-align: center; color: #999;">Nothing here yet. Your legendary streak starts with one entry! 🌟</p>
                         ` : `
                             <table class="metrics-table">
                                 <thead>

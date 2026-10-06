@@ -45,7 +45,7 @@ const CourseManager = {
             const docRef = await db.collection('courses').add(course);
             console.log('✓ Course created with ID:', docRef.id);
 
-            Utils.showSuccess('✓ Course created successfully!');
+            Utils.showSuccess(Fun.msg('course'));
 
             // Wait a bit for the success message to show
             setTimeout(() => {
@@ -136,7 +136,7 @@ const CourseManager = {
                     updatedAt: new Date()
                 });
                 console.log('✓ Course deleted');
-                Utils.showSuccess('✓ Course deleted successfully!');
+                Utils.showSuccess(Fun.msg('courseDelete'));
 
                 setTimeout(() => {
                     AppController.showCourses();

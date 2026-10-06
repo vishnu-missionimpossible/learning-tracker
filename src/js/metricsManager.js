@@ -49,7 +49,12 @@ const MetricsManager = {
             const docRef = await db.collection('metrics').add(metric);
             console.log('✓ Metric added with ID:', docRef.id);
 
-            Utils.showSuccess('✓ Entry added successfully!');
+            if (metricData.status === 'Done') {
+                Utils.showSuccess(Fun.msg('done'));
+                Fun.confetti();
+            } else {
+                Utils.showSuccess(Fun.msg('missed'));
+            }
 
             // Wait a bit for the success message to show
             setTimeout(() => {
@@ -161,7 +166,7 @@ const MetricsManager = {
             if (confirm('Are you sure you want to delete this entry?')) {
                 await db.collection('metrics').doc(metricId).delete();
                 console.log('✓ Metric deleted');
-                Utils.showSuccess('✓ Entry deleted!');
+                Utils.showSuccess(Fun.msg('entryDelete'));
 
                 setTimeout(() => {
                     AppController.openCourse(UIModule.currentCourseId);
