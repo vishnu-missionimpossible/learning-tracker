@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Learning Tracker - Production</title>
+    <meta name="theme-color" content="#667eea">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link rel="stylesheet" href="src/css/styles.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 </head>
@@ -19,6 +22,9 @@
     <!-- Flatpickr (Date Picker) -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
+    <!-- Chart.js (charts) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
     <!-- Application Modules - CORRECT ORDER -->
     <!-- 1. Firebase config must load FIRST -->
     <script src="config/firebase.js"></script>
@@ -26,12 +32,15 @@
     <!-- 2. Utilities (no dependencies) -->
     <script src="src/js/utils.js"></script>
     <script src="src/js/fun.js"></script>
+    <script src="src/js/analytics.js"></script>
+    <script src="src/js/settings.js"></script>
 
     <!-- 3. Auth module (uses auth from firebase.js) -->
     <script src="src/js/auth.js"></script>
 
     <!-- 4. Manager modules (use db from firebase.js) -->
     <script src="src/js/courseManager.js"></script>
+    <script src="src/js/shareManager.js"></script>
     <script src="src/js/metricsManager.js"></script>
 
     <!-- 5. UI module (uses managers) -->

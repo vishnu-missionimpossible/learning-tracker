@@ -77,6 +77,20 @@ const Utils = {
     },
 
     /**
+     * Escape text for safe insertion into HTML
+     * @param {*} value - Any value
+     * @returns {string} - Escaped string
+     */
+    esc: (value) => {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
+    /**
      * Show error message to user
      * @param {string} message - Error message
      */

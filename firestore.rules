@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Each user can read/write only their own profile (daily goals live here)
+    match /users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /courses/{courseId} {
+
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid;
+
+      // Owner, members and invited friends can read the course
+      allow read: if signedIn() && (
+                    resource.data.userId == request.auth.uid
+                    || request.auth.uid in resource.data.memberIds
+                    || request.auth.token.email.lower() in resource.data.invitedEmails
+                  );
+
+      allow update: if signedIn() && (
+                    // owner: full control (invite, rename, soft-delete...)
+                    resource.data.userId == request.auth.uid
+
+                    // invited friend: accept the invite (adds only themselves)
+                    || (request.auth.token.email.lower() in resource.data.invitedEmails
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['memberIds', 'memberEmails', 'invitedEmails', 'updatedAt'])
+                        && request.auth.uid in request.resource.data.memberIds
+                        && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1)
+
+                    // invited friend: decline the invite (only removes their own email)
+                    || (request.auth.token.email.lower() in resource.data.invitedEmails
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['invitedEmails', 'updatedAt']))
+                  );
+
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /metrics/{metricId} {
+
+      function courseOf(id) {
+        return get(/databases/$(database)/documents/courses/$(id)).data;
+      }
+      function isCourseMember(id) {
+        return courseOf(id).userId == request.auth.uid
+            || request.auth.uid in courseOf(id).memberIds;
+      }
+
+      // Everyone in the course can see everyone's entries (needed for the leaderboard)
+      allow read: if signedIn() && (
+                    resource.data.userId == request.auth.uid
+                    || isCourseMember(resource.data.courseId)
+                  );
+
+      // You can only add entries as yourself, to a course you belong to
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && isCourseMember(request.resource.data.courseId);
+
+      // Only the author can edit or delete an entry
+      allow update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

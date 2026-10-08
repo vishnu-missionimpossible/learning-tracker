@@ -39,7 +39,11 @@ const CourseManager = {
                 description: courseData.description || '',
                 createdAt: new Date(),
                 updatedAt: new Date(),
-                isActive: true
+                isActive: true,
+                // Sharing: owner is always the first member
+                memberIds: [userId],
+                memberEmails: { [userId]: (AuthModule.getCurrentUser().email || '').toLowerCase() },
+                invitedEmails: []
             };
 
             const docRef = await db.collection('courses').add(course);
@@ -68,17 +72,43 @@ const CourseManager = {
      */
     getCourses: async () => {
         try {
-            const userId = AuthModule.getCurrentUser().uid;
-            const snapshot = await db.collection('courses')
-                .where('userId', '==', userId)
-                .where('isActive', '==', true)
-                .get();
+            const user = AuthModule.getCurrentUser();
+            const userId = user.uid;
 
-            console.log('Fetched', snapshot.docs.length, 'courses');
+            // Own courses (always works) + courses shared with me
+            const own = await db.collection('courses').where('userId', '==', userId).get();
+            let shared = [];
+            try {
+                const snap = await db.collection('courses').where('memberIds', 'array-contains', userId).get();
+                shared = snap.docs;
+            } catch (e) {
+                console.warn('Could not load shared courses (check Firestore rules):', e.message);
+            }
+
+            const map = {};
+            [...own.docs, ...shared].forEach(doc => {
+                map[doc.id] = { id: doc.id, ...doc.data() };
+            });
+            const courses = Object.values(map).filter(c => c.isActive !== false);
+
+            // One-time migration of older courses so they can be shared
+            courses.forEach(c => {
+                if (c.userId === userId && !c.memberIds) {
+                    c.memberIds = [userId];
+                    c.memberEmails = { [userId]: (user.email || '').toLowerCase() };
+                    c.invitedEmails = c.invitedEmails || [];
+                    db.collection('courses').doc(c.id).update({
+                        memberIds: c.memberIds,
+                        memberEmails: c.memberEmails,
+                        invitedEmails: c.invitedEmails
+                    }).catch(err => console.warn('Course migration failed:', err.message));
+                }
+            });
+
             const toMs = (t) => (t && t.toMillis ? t.toMillis() : new Date(t || 0).getTime());
-            return snapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() }))
-                .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+            courses.sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+            console.log('Fetched', courses.length, 'courses');
+            return courses;
         } catch (error) {
             console.error('Error fetching courses:', error);
             Utils.showError('Error loading courses: ' + error.message);

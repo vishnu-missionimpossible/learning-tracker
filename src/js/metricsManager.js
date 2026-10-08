@@ -78,9 +78,8 @@ const MetricsManager = {
      */
     getCourseMetrics: async (courseId) => {
         try {
-            const userId = AuthModule.getCurrentUser().uid;
+            // All entries of the course (every member's) - Firestore rules enforce membership
             const snapshot = await db.collection('metrics')
-                .where('userId', '==', userId)
                 .where('courseId', '==', courseId)
                 .get();
 
@@ -101,41 +100,35 @@ const MetricsManager = {
      * @param {string} startDate - Start date for calculation
      * @returns {Promise<Object>} - Statistics object
      */
-    getCourseStats: async (courseId, startDate) => {
+    getCourseStats: async (courseId, startDate, metrics) => {
         try {
-            const metrics = await MetricsManager.getCourseMetrics(courseId);
-
-            const start = new Date(startDate);
-            const relevantMetrics = metrics.filter(m => new Date(m.date) >= start);
-
-            const completed = relevantMetrics.filter(m => m.status === 'Done').length;
-            const missed = relevantMetrics.filter(m => m.status === 'Missed').length;
-            const totalDays = Utils.calculateDaysElapsed(startDate);
-            const consistency = Utils.calculateConsistency(completed, totalDays);
-            const totalMinutes = relevantMetrics.reduce((sum, m) => sum + (m.duration || 0), 0);
-
-            console.log('Course stats:', { completed, missed, totalDays, consistency });
-
-            return {
-                completed,
-                missed,
-                totalDays,
-                consistency,
-                totalMinutes,
-                totalEntries: relevantMetrics.length
-            };
+            const all = metrics || await MetricsManager.getCourseMetrics(courseId);
+            const myId = AuthModule.getCurrentUser().uid;
+            return MetricsManager.computeStats(all.filter(m => m.userId === myId), startDate);
         } catch (error) {
             console.error('Error calculating stats:', error);
             Utils.showError('Error calculating stats: ' + error.message);
-            return {
-                completed: 0,
-                missed: 0,
-                totalDays: 0,
-                consistency: 0,
-                totalMinutes: 0,
-                totalEntries: 0
-            };
+            return MetricsManager.computeStats([], startDate);
         }
+    },
+
+    /**
+     * Pure stats calculation for a set of (already filtered) metrics
+     */
+    computeStats: (metrics, startDate) => {
+        const relevant = metrics.filter(m => m.date >= startDate);
+        const completed = Analytics.doneDates(relevant).length;
+        const missed = relevant.filter(m => m.status === 'Missed').length;
+        const totalDays = Utils.calculateDaysElapsed(startDate);
+        return {
+            completed,
+            missed,
+            totalDays,
+            consistency: Utils.calculateConsistency(completed, totalDays),
+            totalMinutes: relevant.filter(m => m.status === 'Done')
+                .reduce((sum, m) => sum + (Number(m.duration) || 0), 0),
+            totalEntries: relevant.length
+        };
     },
 
     /**
@@ -148,7 +141,7 @@ const MetricsManager = {
         try {
             updates.updatedAt = new Date();
             await db.collection('metrics').doc(metricId).update(updates);
-            Utils.showSuccess('✓ Entry updated successfully!');
+            Utils.showSuccess(Fun.msg('edit'));
         } catch (error) {
             console.error('Error updating metric:', error);
             Utils.showError('Error: ' + error.message);

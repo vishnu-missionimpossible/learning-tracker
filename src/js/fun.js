@@ -21,7 +21,35 @@ const Fun = {
         'Ready to be 1% smarter today? 🌱'
     ],
 
+    quotes: [
+        '"It does not matter how slowly you go as long as you do not stop." - Confucius',
+        '"We are what we repeatedly do." - Will Durant',
+        '"Small daily improvements are the key to staggering long-term results." - Robin Sharma',
+        '"The expert in anything was once a beginner." - Helen Hayes',
+        '"Discipline is choosing between what you want now and what you want most." - Abraham Lincoln',
+        '"A little progress each day adds up to big results." - Satya Nani'
+    ],
+
+    reminders: [
+        'Your brain is getting lonely 🥺 Log a quick session!',
+        'Tiny step time! Even 10 minutes keeps the streak alive 🔥',
+        'Psst... your future self is waiting for today\'s entry 👀',
+        'Knowledge will not absorb itself 🧽 Come learn!'
+    ],
+
+    nudges: [
+        'Your learning streak is wondering where you are 👀',
+        'The leaderboard is getting spicy and you are slacking 😏',
+        'Quick 10 minutes today? I believe in you! 💪'
+    ],
+
     toasts: {
+        invite: ['Invite sent! Learning is better with friends 👯'],
+        joined: ['You joined the squad! Time to learn together 🎉'],
+        goal: ['Daily goal saved! Let\'s hit it 🎯'],
+        badge: ['New badge unlocked!'],
+        edit: ['Entry updated! Polished to perfection ✨'],
+        csv: ['Download started! Your data, your rules 📥'],
         signup: ['Welcome aboard! Your learning adventure begins 🎒', 'Account created! Future genius detected 🔍'],
         login: ['Welcome back, superstar! 🌟', 'You are back! The courses missed you 🥹'],
         logout: ['See you soon! Go hydrate 💧', 'Logged out. Rest well, learner 😴'],
@@ -30,6 +58,12 @@ const Fun = {
         done: ['Entry logged! Your brain says thanks 🧠', 'Another day, another win 🏆', 'Consistency looks good on you 😎'],
         missed: ['Missed days happen. Tomorrow is a fresh start 🌅', 'Logged. No guilt, just come back stronger 💪'],
         entryDelete: ['Entry vanished like it never happened 🪄']
+    },
+
+    /** Same quote all day (changes at midnight) */
+    dailyQuote: () => {
+        const day = Math.floor(Date.now() / 86400000);
+        return Fun.quotes[day % Fun.quotes.length];
     },
 
     /** Wrap original toast text with fun text when a key is given */
