@@ -6,6 +6,7 @@
 
 const SettingsModule = {
     goals: {},
+    checklists: {},
 
     // ---------- Safe localStorage ----------
     read: (key, fallback) => {
@@ -43,10 +44,13 @@ const SettingsModule = {
         try {
             const uid = AuthModule.getCurrentUser().uid;
             const doc = await db.collection('users').doc(uid).get();
-            SettingsModule.goals = (doc.exists && doc.data().goals) || {};
+            const data = doc.exists ? doc.data() : {};
+            SettingsModule.goals = data.goals || {};
+            SettingsModule.checklists = data.checklists || {};
         } catch (e) {
             console.warn('Could not load goals:', e.message);
             SettingsModule.goals = {};
+            SettingsModule.checklists = {};
         }
     },
     getGoal: (courseId) => Number(SettingsModule.goals[courseId]) || 0,
@@ -61,6 +65,43 @@ const SettingsModule = {
             Utils.showError('Could not save goal: ' + e.message);
             return false;
         }
+    },
+
+    // ---------- Private learning checklist per course (Firestore: users/{uid}.checklists) ----------
+    getChecklist: (courseId) => SettingsModule.checklists[courseId] || [],
+
+    saveChecklist: async (courseId, items) => {
+        const uid = AuthModule.getCurrentUser().uid;
+        try {
+            await db.collection('users').doc(uid).set({ checklists: { [courseId]: items } }, { merge: true });
+            SettingsModule.checklists[courseId] = items;
+            return true;
+        } catch (e) {
+            Utils.showError('Could not save checklist: ' + e.message);
+            return false;
+        }
+    },
+
+    addChecklistItem: async (courseId, title) => {
+        const clean = (title || '').trim().slice(0, 120);
+        if (!clean) return false;
+        const items = [...SettingsModule.getChecklist(courseId),
+            { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: clean, done: false }];
+        if (items.length > 60) {
+            Utils.showError('That is a lot of topics! Keep it to 60 or fewer.');
+            return false;
+        }
+        return SettingsModule.saveChecklist(courseId, items);
+    },
+
+    toggleChecklistItem: async (courseId, itemId) => {
+        const items = SettingsModule.getChecklist(courseId).map(i => i.id === itemId ? { ...i, done: !i.done } : i);
+        return SettingsModule.saveChecklist(courseId, items);
+    },
+
+    removeChecklistItem: async (courseId, itemId) => {
+        const items = SettingsModule.getChecklist(courseId).filter(i => i.id !== itemId);
+        return SettingsModule.saveChecklist(courseId, items);
     },
 
     // ---------- Reminders (browser notifications while the app is open) ----------

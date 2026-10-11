@@ -132,6 +132,32 @@ const MetricsManager = {
     },
 
     /**
+     * Toggle my reaction on an entry (one reaction per person per entry)
+     * @returns {Promise<string|null>} - the new reaction (null if removed), or undefined on error
+     */
+    react: async (metricId, emoji) => {
+        try {
+            const uid = AuthModule.getCurrentUser().uid;
+            const metric = (UIModule.allMetrics || []).find(m => m.id === metricId);
+            const current = metric && metric.reactions ? metric.reactions[uid] : null;
+            const next = current === emoji ? null : emoji;
+            await db.collection('metrics').doc(metricId).update({
+                ['reactions.' + uid]: next === null ? firebase.firestore.FieldValue.delete() : next
+            });
+            if (metric) {
+                metric.reactions = { ...(metric.reactions || {}) };
+                if (next === null) delete metric.reactions[uid];
+                else metric.reactions[uid] = next;
+            }
+            return next;
+        } catch (error) {
+            console.error('Reaction error:', error);
+            Utils.showError('Could not react: ' + error.message);
+            return undefined;
+        }
+    },
+
+    /**
      * Update metric
      * @param {string} metricId - Metric ID
      * @param {Object} updates - Fields to update

@@ -31,26 +31,48 @@ const Analytics = {
         return [...new Set(metrics.filter(m => m.status === 'Done').map(m => m.date))].sort();
     },
 
-    /** Current and best streak (consecutive Done days). Today not yet logged keeps yesterday's streak alive. */
-    streaks: (metrics) => {
+    /**
+     * Streak details with a weekly "freeze": one missed day per Monday-Sunday week is forgiven
+     * (it bridges the streak but does not add to it).
+     * @returns {{current:number,best:number,frozen:Set<string>,freezeUsedThisWeek:boolean}}
+     */
+    streakInfo: (metrics) => {
         const dates = Analytics.doneDates(metrics);
-        if (!dates.length) return { current: 0, best: 0 };
+        const frozen = new Set();
+        if (!dates.length) return { current: 0, best: 0, frozen, freezeUsedThisWeek: false };
 
-        let best = 1, run = 1;
-        for (let i = 1; i < dates.length; i++) {
-            run = Analytics.daysBetween(dates[i - 1], dates[i]) === 1 ? run + 1 : 1;
-            best = Math.max(best, run);
-        }
-
-        const set = new Set(dates);
+        const done = new Set(dates);
         const today = Analytics.today();
-        let cursor = set.has(today) ? today : Analytics.addDays(today, -1);
-        let current = 0;
-        while (set.has(cursor)) {
-            current++;
-            cursor = Analytics.addDays(cursor, -1);
+        const usedWeeks = new Set();
+        let run = 0, best = 0;
+        for (let day = dates[0]; day <= today; day = Analytics.addDays(day, 1)) {
+            if (done.has(day)) {
+                run++;
+                best = Math.max(best, run);
+            } else if (day === today) {
+                // today is still open - never breaks the streak
+            } else if (run > 0) {
+                const wk = Analytics.weekStart(day);
+                if (!usedWeeks.has(wk)) {
+                    usedWeeks.add(wk);
+                    frozen.add(day);
+                } else {
+                    run = 0;
+                }
+            }
         }
-        return { current, best };
+        return {
+            current: run,
+            best,
+            frozen,
+            freezeUsedThisWeek: usedWeeks.has(Analytics.weekStart(today))
+        };
+    },
+
+    /** Current and best streak (consecutive Done days, with weekly freeze) */
+    streaks: (metrics) => {
+        const info = Analytics.streakInfo(metrics);
+        return { current: info.current, best: info.best };
     },
 
     minutesOn: (metrics, dateKey) => {
@@ -93,6 +115,7 @@ const Analytics = {
             else if (!byDate[m.date]) byDate[m.date] = 'missed';
         });
         const today = Analytics.today();
+        const frozen = Analytics.streakInfo(metrics).frozen;
         const t = Analytics.parse(today);
         const startKey = Analytics.addDays(today, -(t.getDay() + (weeks - 1) * 7));
         const cols = [];
@@ -100,7 +123,7 @@ const Analytics = {
             const col = [];
             for (let d = 0; d < 7; d++) {
                 const key = Analytics.addDays(startKey, w * 7 + d);
-                col.push({ date: key, state: key > today ? 'future' : (byDate[key] || 'none') });
+                col.push({ date: key, state: key > today ? 'future' : (byDate[key] === 'done' ? 'done' : (frozen.has(key) ? 'frozen' : (byDate[key] || 'none'))) });
             }
             cols.push(col);
         }
@@ -170,6 +193,72 @@ const Analytics = {
         });
         rows.sort((a, b) => b.consistency - a.consistency || b.streak - a.streak || b.minutes - a.minutes);
         return rows;
+    },
+
+    /** "Week in review": this week (Mon-today) vs last week */
+    weekReview: (metrics) => {
+        const today = Analytics.today();
+        const thisStart = Analytics.weekStart(today);
+        const lastStart = Analytics.addDays(thisStart, -7);
+        const lastEnd = Analytics.addDays(thisStart, -1);
+        const inRange = (m, a, b) => m.status === 'Done' && m.date >= a && m.date <= b;
+        const mins = (list) => list.reduce((s, m) => s + (Number(m.duration) || 0), 0);
+
+        const thisWeek = metrics.filter(m => inRange(m, thisStart, today));
+        const lastWeek = metrics.filter(m => inRange(m, lastStart, lastEnd));
+
+        const perDay = {};
+        thisWeek.forEach(m => { perDay[m.date] = (perDay[m.date] || 0) + (Number(m.duration) || 0); });
+        let bestDay = null;
+        Object.keys(perDay).forEach(d => { if (!bestDay || perDay[d] > perDay[bestDay]) bestDay = d; });
+
+        const topics = {};
+        thisWeek.forEach(m => {
+            const t = (m.topic || '').trim();
+            if (t) topics[t.toLowerCase()] = topics[t.toLowerCase()] || { name: t, n: 0 };
+            if (t) topics[t.toLowerCase()].n++;
+        });
+        const topTopic = Object.values(topics).sort((a, b) => b.n - a.n)[0];
+
+        return {
+            doneDays: new Set(thisWeek.map(m => m.date)).size,
+            minutes: mins(thisWeek),
+            lastMinutes: mins(lastWeek),
+            lastDoneDays: new Set(lastWeek.map(m => m.date)).size,
+            bestDay: bestDay ? { date: bestDay, minutes: perDay[bestDay] } : null,
+            topTopic: topTopic ? topTopic.name : null
+        };
+    },
+
+    /** Group challenge progress: unique Done days inside the challenge window, per member */
+    challengeProgress: (course, allMetrics) => {
+        const ch = course.challenge;
+        if (!ch) return null;
+        const today = Analytics.today();
+        const memberIds = course.memberIds && course.memberIds.length ? course.memberIds : [course.userId];
+        const rows = memberIds.map(uid => {
+            const days = Analytics.doneDates(allMetrics.filter(m => m.userId === uid))
+                .filter(d => d >= ch.startDate && d <= ch.endDate).length;
+            return { uid, days, pct: Math.min(100, Math.round(days / ch.target * 100)), reached: days >= ch.target };
+        }).sort((a, b) => b.days - a.days);
+        const ended = today > ch.endDate;
+        const daysLeft = Math.max(0, Analytics.daysBetween(today, ch.endDate) + 1);
+        const top = rows.length ? rows[0].days : 0;
+        return { ch, rows, ended, daysLeft, winners: top > 0 ? rows.filter(r => r.days === top) : [] };
+    },
+
+    /** Apply history filters */
+    filterMetrics: (metrics, f) => {
+        const q = (f.q || '').trim().toLowerCase();
+        return metrics.filter(m => {
+            if (f.status && m.status !== f.status) return false;
+            if (f.member && m.userId !== f.member) return false;
+            if (f.topic && (m.topic || '').trim().toLowerCase() !== f.topic.toLowerCase()) return false;
+            if (f.from && m.date < f.from) return false;
+            if (f.to && m.date > f.to) return false;
+            if (q && !((m.topic || '') + ' ' + (m.notes || '')).toLowerCase().includes(q)) return false;
+            return true;
+        });
     },
 
     /** CSV text for entries (adds a Member column) */

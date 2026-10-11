@@ -83,6 +83,8 @@ const AppController = {
     showCourses: async () => {
         try {
             UIModule.currentCourseId = null;
+            UIModule.activeTab = 'progress';
+            await ProfileManager.load([AuthModule.getCurrentUser().uid]);
             const [courses, invitations] = await Promise.all([
                 CourseManager.getCourses(),
                 ShareManager.getInvitations()
@@ -138,6 +140,10 @@ const AppController = {
         try {
             const course = await CourseManager.getCourse(courseId);
             const metrics = await MetricsManager.getCourseMetrics(courseId);
+            await ProfileManager.load([
+                ...(course.memberIds || [course.userId]),
+                ...metrics.map(m => m.userId)
+            ]);
             const stats = await MetricsManager.getCourseStats(courseId, course.startDate, metrics);
 
             UIModule.currentCourseId = courseId;
@@ -244,11 +250,95 @@ const AppController = {
         document.getElementById('formTitle').textContent = 'Editing entry ✏️';
         document.getElementById('submitMetric').textContent = 'Save Changes 💾';
         document.getElementById('cancelEdit').style.display = 'inline-block';
+        UIModule.switchTab('log');
         document.getElementById('logForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
     },
 
     cancelEdit: () => {
         if (UIModule.currentCourseId) AppController.openCourse(UIModule.currentCourseId);
+    },
+
+    // ---------- Reactions, filters, timer ----------
+    react: async (metricId, emoji) => {
+        const result = await MetricsManager.react(metricId, emoji);
+        if (result !== undefined) UIModule.refreshHistory();
+    },
+
+    applyFilters: () => {
+        const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+        UIModule.filters = {
+            q: val('fQ'), status: val('fStatus'), topic: val('fTopic'),
+            member: val('fMember'), from: val('fFrom'), to: val('fTo')
+        };
+        UIModule.refreshHistory();
+    },
+
+    clearFilters: () => {
+        ['fQ', 'fStatus', 'fTopic', 'fMember', 'fFrom', 'fTo'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        AppController.applyFilters();
+    },
+
+    /** Fill the log form from the focus timer */
+    useTimer: () => {
+        const minutes = TimerModule.minutes();
+        document.getElementById('metricDuration').value = minutes;
+        document.getElementById('metricStatus').value = 'Done';
+        TimerModule.reset();
+        document.getElementById('logForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        Utils.showSuccess('Filled in ' + minutes + ' min - add a topic and hit Log It! ✅');
+    },
+
+    // ---------- Checklist ----------
+    addChecklist: async (courseId) => {
+        const input = document.getElementById('checklistInput');
+        if (await SettingsModule.addChecklistItem(courseId, input.value)) UIModule.refreshChecklist(courseId);
+    },
+    toggleChecklist: async (courseId, itemId) => {
+        await SettingsModule.toggleChecklistItem(courseId, itemId);
+        UIModule.refreshChecklist(courseId);
+    },
+    removeChecklist: async (courseId, itemId) => {
+        await SettingsModule.removeChecklistItem(courseId, itemId);
+        UIModule.refreshChecklist(courseId);
+    },
+
+    // ---------- Profile ----------
+    saveProfile: async () => {
+        const name = document.getElementById('profileName').value;
+        const avatar = document.getElementById('profileAvatar').value;
+        if (await ProfileManager.save(name, avatar)) {
+            document.getElementById('profileModal').remove();
+            if (UIModule.currentCourseId) AppController.openCourse(UIModule.currentCourseId);
+            else AppController.showCourses();
+        }
+    },
+
+    // ---------- Challenge / members ----------
+    startChallenge: async (courseId) => {
+        const ok = await ShareManager.startChallenge(
+            courseId,
+            document.getElementById('chTitle').value,
+            document.getElementById('chTarget').value,
+            document.getElementById('chDays').value
+        );
+        if (ok) AppController.openCourse(courseId);
+    },
+
+    endChallenge: async (courseId) => {
+        if (await ShareManager.endChallenge(courseId)) AppController.openCourse(courseId);
+    },
+
+    leaveCourse: async (courseId) => {
+        if (!confirm('Leave this course? Your past entries stay visible to the group.')) return;
+        if (await ShareManager.leave(courseId)) AppController.showCourses();
+    },
+
+    removeMember: async (courseId, uid) => {
+        if (!confirm('Remove this member from the course? Their past entries stay in the history.')) return;
+        if (await ShareManager.removeMember(courseId, uid)) AppController.openCourse(courseId);
     },
 
     // ---------- Sharing ----------
@@ -286,8 +376,8 @@ const AppController = {
     exportCSV: () => {
         const course = UIModule.currentCourse;
         if (!course) return;
-        const emailOf = (uid) => (course.memberEmails && course.memberEmails[uid]) || (uid === course.userId ? 'Course owner' : 'Member');
-        const sorted = [...UIModule.allMetrics].sort((a, b) => (a.date > b.date ? 1 : -1));
+        const emailOf = (uid) => (course.memberEmails && course.memberEmails[uid]) || (uid === course.userId ? 'Course owner' : 'Former member');
+        const sorted = UIModule.filteredMetrics().sort((a, b) => (a.date > b.date ? 1 : -1));
         const name = course.courseName.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'course';
         Analytics.downloadCSV('learning-' + name + '.csv', Analytics.toCSV(course, sorted, emailOf));
         Utils.showSuccess(Fun.msg('csv'));

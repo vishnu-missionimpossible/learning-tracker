@@ -44,6 +44,12 @@ const Fun = {
     ],
 
     toasts: {
+        profile: ['Profile saved! Looking good, legend 😎'],
+        left: ['You left the course. The door is always open 👋'],
+        removed: ['Member removed'],
+        challenge: ['Challenge started! May the best learner win 🏁'],
+        challengeEnd: ['Challenge ended'],
+        timerDone: ['Timer complete! Take a stretch 🧘'],
         invite: ['Invite sent! Learning is better with friends 👯'],
         joined: ['You joined the squad! Time to learn together 🎉'],
         goal: ['Daily goal saved! Let\'s hit it 🎯'],
@@ -59,6 +65,28 @@ const Fun = {
         missed: ['Missed days happen. Tomorrow is a fresh start 🌅', 'Logged. No guilt, just come back stronger 💪'],
         entryDelete: ['Entry vanished like it never happened 🪄']
     },
+
+    verdicts: {
+        none: 'A blank week so far. Plot twist: it is only as empty as you let it stay 😄',
+        low: 'Warm-up week! Every pro started with tiny sessions 🌱',
+        mid: 'Solid week! Your brain is flexing in the mirror 💪',
+        high: 'Monster week! Please leave some knowledge for the rest of us 🔥',
+        up: 'More minutes than last week. Look at that glow-up 📈',
+        down: 'A bit lighter than last week - rest is part of the process 🌿'
+    },
+
+    weekVerdict: (review) => {
+        if (!review.doneDays) return Fun.verdicts.none;
+        let base = review.doneDays >= 5 ? Fun.verdicts.high : review.doneDays >= 3 ? Fun.verdicts.mid : Fun.verdicts.low;
+        if (review.lastMinutes) {
+            base += ' ' + (review.minutes >= review.lastMinutes ? Fun.verdicts.up : Fun.verdicts.down);
+        }
+        return base;
+    },
+
+    reactionEmojis: ['👏', '🔥', '💪', '🎉', '😂'],
+
+    avatars: ['🦊', '🐼', '🐯', '🦉', '🐙', '🦄', '🐢', '🐧', '🦁', '🐸', '🤖', '🧙', '🥷', '🧑‍🚀', '🌱', '🦖'],
 
     /** Same quote all day (changes at midnight) */
     dailyQuote: () => {

@@ -80,6 +80,81 @@ const ShareManager = {
         }
     },
 
+    /** Owner starts a challenge: everyone logs `target` Done days within `days` days from today */
+    startChallenge: async (courseId, title, target, days) => {
+        const t = Math.min(Math.max(parseInt(target) || 0, 1), 365);
+        const d = Math.min(Math.max(parseInt(days) || 0, 1), 365);
+        if (t > d) {
+            Utils.showError('Target days cannot be more than the challenge length');
+            return false;
+        }
+        const startDate = Analytics.today();
+        try {
+            await db.collection('courses').doc(courseId).update({
+                challenge: {
+                    title: (title || '').trim().slice(0, 80) || ('Log ' + t + ' days in ' + d),
+                    target: t,
+                    startDate,
+                    endDate: Analytics.addDays(startDate, d - 1)
+                },
+                updatedAt: new Date()
+            });
+            Utils.showSuccess(Fun.msg('challenge'));
+            Fun.confetti();
+            return true;
+        } catch (error) {
+            Utils.showError('Could not start challenge: ' + error.message);
+            return false;
+        }
+    },
+
+    endChallenge: async (courseId) => {
+        try {
+            await db.collection('courses').doc(courseId).update({
+                challenge: firebase.firestore.FieldValue.delete(),
+                updatedAt: new Date()
+            });
+            Utils.showSuccess(Fun.msg('challengeEnd'));
+            return true;
+        } catch (error) {
+            Utils.showError('Error: ' + error.message);
+            return false;
+        }
+    },
+
+    /** A member leaves a shared course (the owner cannot - they delete the course instead) */
+    leave: async (courseId) => {
+        try {
+            const me = AuthModule.getCurrentUser();
+            await db.collection('courses').doc(courseId).update({
+                memberIds: firebase.firestore.FieldValue.arrayRemove(me.uid),
+                ['memberEmails.' + me.uid]: firebase.firestore.FieldValue.delete(),
+                updatedAt: new Date()
+            });
+            Utils.showSuccess(Fun.msg('left'));
+            return true;
+        } catch (error) {
+            Utils.showError('Could not leave: ' + error.message);
+            return false;
+        }
+    },
+
+    /** Owner removes a member (their past entries stay in the history) */
+    removeMember: async (courseId, uid) => {
+        try {
+            await db.collection('courses').doc(courseId).update({
+                memberIds: firebase.firestore.FieldValue.arrayRemove(uid),
+                ['memberEmails.' + uid]: firebase.firestore.FieldValue.delete(),
+                updatedAt: new Date()
+            });
+            Utils.showSuccess(Fun.msg('removed'));
+            return true;
+        } catch (error) {
+            Utils.showError('Could not remove member: ' + error.message);
+            return false;
+        }
+    },
+
     decline: async (courseId) => {
         try {
             const email = (AuthModule.getCurrentUser().email || '').toLowerCase();

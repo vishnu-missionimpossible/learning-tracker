@@ -11,6 +11,17 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
+    // Public display name + avatar (no email stored here)
+    match /profiles/{userId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly(['displayName', 'avatar', 'updatedAt'])
+                    && request.resource.data.displayName is string
+                    && request.resource.data.displayName.size() > 0
+                    && request.resource.data.displayName.size() <= 30;
+    }
+
     match /courses/{courseId} {
 
       allow create: if signedIn()
@@ -33,6 +44,14 @@ service cloud.firestore {
                              .hasOnly(['memberIds', 'memberEmails', 'invitedEmails', 'updatedAt'])
                         && request.auth.uid in request.resource.data.memberIds
                         && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1)
+
+                    // member: leave the course (removes only themselves; the owner cannot leave)
+                    || (request.auth.uid in resource.data.memberIds
+                        && request.auth.uid != resource.data.userId
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['memberIds', 'memberEmails', 'updatedAt'])
+                        && !(request.auth.uid in request.resource.data.memberIds)
+                        && request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1)
 
                     // invited friend: decline the invite (only removes their own email)
                     || (request.auth.token.email.lower() in resource.data.invitedEmails
@@ -64,8 +83,20 @@ service cloud.firestore {
                     && request.resource.data.userId == request.auth.uid
                     && isCourseMember(request.resource.data.courseId);
 
-      // Only the author can edit or delete an entry
-      allow update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      // The author can edit an entry; any other course member may only set or remove
+      // THEIR OWN emoji reaction on it
+      allow update: if signedIn() && (
+                    resource.data.userId == request.auth.uid
+                    || (isCourseMember(resource.data.courseId)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+                        && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
+                             .affectedKeys().hasOnly([request.auth.uid])
+                        && (!(request.auth.uid in request.resource.data.reactions)
+                            || request.resource.data.reactions[request.auth.uid] in ['👏', '🔥', '💪', '🎉', '😂']))
+                  );
+
+      // Only the author can delete an entry
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
   }
 }

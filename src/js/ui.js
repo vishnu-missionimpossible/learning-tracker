@@ -144,6 +144,181 @@ const UIModule = {
     },
 
     /**
+     * Friendly label for a member: profile name (+avatar), else email, else a placeholder
+     */
+    nameOf: (course, uid) => {
+        const p = ProfileManager.get(uid);
+        if (p && p.displayName) return (p.avatar || '🙂') + ' ' + p.displayName;
+        const email = course.memberEmails && course.memberEmails[uid];
+        if (email) return email;
+        return uid === course.userId ? 'Course owner' : 'Former member';
+    },
+
+    activeTab: 'progress',
+    filters: { q: '', status: '', member: '', topic: '', from: '', to: '' },
+    charts: [],
+
+    switchTab: (tab) => {
+        UIModule.activeTab = tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+        UIModule.charts.forEach(c => c.resize());
+    },
+
+    /** Challenge card */
+    challengeHtml: (course, allMetrics, isOwner) => {
+        const esc = Utils.esc;
+        const prog = Analytics.challengeProgress(course, allMetrics);
+        if (!prog) {
+            return `
+                <div class="form-section">
+                    <h2>🏁 Challenge</h2>
+                    <p class="muted">Set a goal for the whole squad (or just yourself): log a number of Done days within a time window.</p>
+                    ${isOwner ? `
+                        <div class="challenge-form">
+                            <input type="text" id="chTitle" placeholder="e.g., Study sprint" maxlength="80">
+                            <input type="number" id="chTarget" min="1" max="365" placeholder="Done days" value="5">
+                            <input type="number" id="chDays" min="1" max="365" placeholder="Within days" value="7">
+                            <button class="btn btn-primary" onclick="AppController.startChallenge('${course.id}')">Start Challenge 🏁</button>
+                        </div>` : '<p class="muted">The course owner can start a challenge.</p>'}
+                </div>`;
+        }
+        const ch = prog.ch;
+        const status = prog.ended
+            ? (prog.winners.length ? '🏆 Winner' + (prog.winners.length > 1 ? 's' : '') + ': ' + prog.winners.map(w => esc(UIModule.nameOf(course, w.uid))).join(', ') : 'Ended - nobody logged days. Next time! 😅')
+            : `⏳ ${prog.daysLeft} day${prog.daysLeft === 1 ? '' : 's'} left`;
+        return `
+            <div class="form-section">
+                <h2>🏁 ${esc(ch.title)}</h2>
+                <p class="muted">Log <strong>${ch.target}</strong> Done days between ${Utils.formatDate(ch.startDate)} and ${Utils.formatDate(ch.endDate)} &middot; ${status}</p>
+                ${prog.rows.map(r => `
+                    <div class="chal-row">
+                        <div class="chal-name">${esc(UIModule.nameOf(course, r.uid))}${r.reached ? ' ✅' : ''}</div>
+                        <div class="chal-bar"><div class="chal-fill ${r.reached ? 'done' : ''}" style="width:${r.pct}%"></div></div>
+                        <div class="chal-count">${r.days}/${ch.target}</div>
+                    </div>`).join('')}
+                ${isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="AppController.endChallenge('${course.id}')">${prog.ended ? 'Clear challenge' : 'End challenge'}</button>` : ''}
+            </div>`;
+    },
+
+    /** Checklist card body (also re-rendered on its own) */
+    checklistHtml: (courseId) => {
+        const esc = Utils.esc;
+        const items = SettingsModule.getChecklist(courseId);
+        const done = items.filter(i => i.done).length;
+        const pct = items.length ? Math.round(done / items.length * 100) : 0;
+        return `
+            ${items.length ? `<div class="progress-line"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <p class="muted">${done}/${items.length} topics done (${pct}%)${pct === 100 ? ' 🎉 Course topics conquered!' : ''}</p>` : '<p class="muted">Break the course into topics and tick them off as you go. Only you can see this list.</p>'}
+            <ul class="checklist">
+                ${items.map(i => `
+                    <li class="${i.done ? 'checked' : ''}">
+                        <label><input type="checkbox" ${i.done ? 'checked' : ''} onchange="AppController.toggleChecklist('${courseId}', '${i.id}')"> <span>${esc(i.title)}</span></label>
+                        <button class="icon-btn" title="Remove" onclick="AppController.removeChecklist('${courseId}', '${i.id}')">✕</button>
+                    </li>`).join('')}
+            </ul>
+            <div class="share-row">
+                <input type="text" id="checklistInput" placeholder="Add a topic, e.g., Functions" maxlength="120" onkeydown="if(event.key==='Enter'){AppController.addChecklist('${courseId}')}">
+                <button class="btn btn-secondary" onclick="AppController.addChecklist('${courseId}')">Add</button>
+            </div>`;
+    },
+
+    refreshChecklist: (courseId) => {
+        const box = document.getElementById('checklistBox');
+        if (box) box.innerHTML = UIModule.checklistHtml(courseId);
+    },
+
+    /** History rows for the current filters */
+    historyRowsHtml: () => {
+        const me = AuthModule.getCurrentUser();
+        const esc = Utils.esc;
+        const course = UIModule.currentCourse;
+        const shared = ((course.memberIds || []).length > 1);
+        const list = UIModule.filteredMetrics();
+
+        if (!list.length) {
+            return `<tr><td colspan="8" style="text-align:center;color:#999;">No entries match your filters 🔍</td></tr>`;
+        }
+        return list.map(metric => {
+            const mine = metric.userId === me.uid;
+            const reactions = metric.reactions || {};
+            const counts = {};
+            Object.values(reactions).forEach(e => { counts[e] = (counts[e] || 0) + 1; });
+            const myReaction = reactions[me.uid];
+            const cheers = shared ? `
+                <div class="cheers">
+                    ${Fun.reactionEmojis.map(e => {
+                        const n = counts[e] || 0;
+                        if (mine) return n ? `<span class="cheer">${e}${n}</span>` : '';
+                        return `<button class="cheer cheer-btn ${myReaction === e ? 'on' : ''}" onclick="AppController.react('${metric.id}', '${e}')" title="React">${e}${n ? n : ''}</button>`;
+                    }).join('')}
+                </div>` : '';
+            return `
+            <tr>
+                <td>${Utils.formatDate(metric.date)}</td>
+                ${shared ? `<td>${esc(UIModule.nameOf(course, metric.userId))}${mine ? ' (you)' : ''}</td>` : ''}
+                <td><span class="badge badge-${esc((metric.status || '').toLowerCase())}">${esc(metric.status)}</span></td>
+                <td>${Number(metric.duration) || 0} min</td>
+                <td>${esc(metric.topic)}</td>
+                <td>${esc(metric.notes)}</td>
+                ${shared ? `<td>${cheers}</td>` : ''}
+                <td class="actions-cell">
+                    ${mine ? `
+                        <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric('${metric.id}')">Edit</button>
+                        <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric('${metric.id}')">Delete</button>` : ''}
+                </td>
+            </tr>`;
+        }).join('');
+    },
+
+    filteredMetrics: () => {
+        const sorted = [...UIModule.allMetrics].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0));
+        return Analytics.filterMetrics(sorted, UIModule.filters);
+    },
+
+    refreshHistory: () => {
+        const body = document.getElementById('historyBody');
+        if (body) body.innerHTML = UIModule.historyRowsHtml();
+        const count = document.getElementById('historyCount');
+        if (count) count.textContent = UIModule.filteredMetrics().length + ' of ' + UIModule.allMetrics.length + ' entries';
+    },
+
+    /** Profile modal */
+    showProfileModal: () => {
+        if (document.getElementById('profileModal')) return;
+        const p = ProfileManager.mine() || {};
+        const current = p.avatar || Fun.avatars[0];
+        const overlay = document.createElement('div');
+        overlay.id = 'profileModal';
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-box">
+                <h2>👤 Your Profile</h2>
+                <p class="muted">Friends in shared courses see this instead of your email.</p>
+                <div class="form-group">
+                    <label>Display name</label>
+                    <input type="text" id="profileName" maxlength="30" placeholder="e.g., Vishnu" value="${Utils.esc(p.displayName || '')}">
+                </div>
+                <label>Pick an avatar</label>
+                <div class="avatar-grid" id="avatarGrid">
+                    ${Fun.avatars.map(a => `<button type="button" class="avatar-opt ${a === current ? 'selected' : ''}" data-avatar="${a}" onclick="UIModule.pickAvatar('${a}')">${a}</button>`).join('')}
+                </div>
+                <input type="hidden" id="profileAvatar" value="${current}">
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="AppController.saveProfile()">Save</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('profileModal').remove()">Cancel</button>
+                </div>
+            </div>`;
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+    },
+
+    pickAvatar: (a) => {
+        document.getElementById('profileAvatar').value = a;
+        document.querySelectorAll('.avatar-opt').forEach(b => b.classList.toggle('selected', b.dataset.avatar === a));
+    },
+
+    /**
      * Render courses list screen
      * @param {Array} courses - Array of courses
      * @param {Array} invitations - Courses I have been invited to
@@ -151,6 +326,8 @@ const UIModule = {
     renderCoursesScreen: async (courses, invitations = []) => {
         const me = AuthModule.getCurrentUser();
         const esc = Utils.esc;
+        const profile = ProfileManager.mine();
+        const myName = profile && profile.displayName ? (profile.avatar || '🙂') + ' ' + profile.displayName : me.email;
 
         const invitesHtml = invitations.map(c => `
             <div class="invite-card">
@@ -177,6 +354,7 @@ const UIModule = {
                 <div class="tag-row">
                     ${members > 1 ? `<span class="tag tag-shared">👯 ${members} learners</span>` : ''}
                     ${!isOwner ? '<span class="tag">Shared with you</span>' : ''}
+                    ${course.challenge ? '<span class="tag tag-challenge">🏁 Challenge on</span>' : ''}
                 </div>
                 <p class="course-desc">${esc(course.description) || 'No description'}</p>
                 <div class="course-dates">
@@ -197,10 +375,11 @@ const UIModule = {
                 <div class="header">
                     <div>
                         <h1>🎒 My Learning Adventures</h1>
-                        <span class="user-email">${Fun.pick(Fun.greetings)} &middot; ${esc(me.email)}</span>
+                        <span class="user-email">${Fun.pick(Fun.greetings)} &middot; ${esc(myName)}</span>
                     </div>
                     <div class="header-actions">
                         <button class="btn btn-primary" onclick="AppController.showCourseSetup()">+ New Adventure ✨</button>
+                        <button class="btn btn-secondary" onclick="UIModule.showProfileModal()">👤 Profile</button>
                         <button class="btn btn-secondary" id="installBtn" style="display:none" onclick="AppController.installApp()">📲 Install</button>
                         <button class="btn btn-secondary" onclick="AppController.logout()">Logout</button>
                     </div>
@@ -208,6 +387,8 @@ const UIModule = {
 
                 <div class="content">
                     <div class="quote-banner">💡 ${esc(Fun.dailyQuote())}</div>
+
+                    ${!profile ? `<div class="today-banner">👋 Pick a display name and avatar so friends see more than your email. <a href="#" onclick="UIModule.showProfileModal(); return false;">Set up profile</a></div>` : ''}
 
                     ${invitations.length ? `<div class="invites"><h2>📬 You have invitations!</h2>${invitesHtml}</div>` : ''}
 
@@ -246,16 +427,16 @@ const UIModule = {
         const isOwner = course.userId === me.uid;
         const memberIds = course.memberIds && course.memberIds.length ? course.memberIds : [course.userId];
         const shared = memberIds.length > 1;
-        const emailOf = (uid) => (course.memberEmails && course.memberEmails[uid]) || (uid === course.userId ? 'Course owner' : 'Member');
+        const nameOf = (uid) => UIModule.nameOf(course, uid);
         const myMetrics = allMetrics.filter(m => m.userId === me.uid);
-        const sortedAll = [...allMetrics].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0));
 
         UIModule.allMetrics = allMetrics;
         UIModule.myMetrics = myMetrics;
         UIModule.currentCourse = course;
         UIModule.editingMetricId = null;
+        UIModule.filters = { q: '', status: '', member: '', topic: '', from: '', to: '' };
 
-        const streak = Analytics.streaks(myMetrics);
+        const streak = Analytics.streakInfo(myMetrics);
         const mood = Fun.mood(stats.consistency, stats.totalEntries);
         const badges = Analytics.badges(myMetrics);
         const earned = badges.filter(b => b.earned).length;
@@ -264,10 +445,21 @@ const UIModule = {
         const pct = goal ? Math.min(100, Math.round(todayMin / goal * 100)) : 0;
         const R = 42, C = 2 * Math.PI * R;
         const loggedToday = Analytics.hasLoggedToday(myMetrics);
+        const week = Analytics.weekReview(myMetrics);
+
+        // Course timeline (only when there is an end date)
+        let timelineHtml = '';
+        if (course.endDate && course.endDate > course.startDate) {
+            const total = Analytics.daysBetween(course.startDate, course.endDate) + 1;
+            const elapsed = Math.min(total, Math.max(0, Analytics.daysBetween(course.startDate, Analytics.today()) + 1));
+            const tp = Math.round(elapsed / total * 100);
+            timelineHtml = `<div class="progress-line"><div class="progress-fill time" style="width:${tp}%"></div></div>
+                <p class="muted">Course timeline: day ${elapsed} of ${total} (${tp}%)</p>`;
+        }
 
         const heat = Analytics.heatmap(myMetrics, 18);
         const heatHtml = heat.map(col => `<div class="heat-col">${col.map(c =>
-            `<div class="heat-cell heat-${c.state}" title="${c.date}${c.state === 'done' ? ' - Done 🎉' : c.state === 'missed' ? ' - Missed' : ''}"></div>`
+            `<div class="heat-cell heat-${c.state}" title="${c.date}${c.state === 'done' ? ' - Done 🎉' : c.state === 'missed' ? ' - Missed' : c.state === 'frozen' ? ' - Streak freeze 🧊' : ''}"></div>`
         ).join('')}</div>`).join('');
 
         // Leaderboard
@@ -278,57 +470,78 @@ const UIModule = {
             leaderboardHtml = `
                 <div class="form-section">
                     <h2>🏆 Friendly Leaderboard</h2>
+                    <div class="table-scroll">
                     <table class="metrics-table leaderboard">
                         <thead><tr><th>#</th><th>Learner</th><th>Consistency</th><th>Streak</th><th>Wins</th><th>Minutes</th><th></th></tr></thead>
                         <tbody>
-                            ${rows.map((r, i) => `
+                            ${rows.map((r, i) => {
+                                const email = course.memberEmails && course.memberEmails[r.uid];
+                                return `
                                 <tr class="${r.uid === me.uid ? 'row-me' : ''}">
                                     <td>${medals[i] || (i + 1)}</td>
-                                    <td>${esc(r.email)}${r.uid === me.uid ? ' (you)' : ''}</td>
+                                    <td>${esc(nameOf(r.uid))}${r.uid === me.uid ? ' (you)' : ''}</td>
                                     <td><strong>${r.consistency}%</strong></td>
                                     <td>🔥 ${r.streak}</td>
                                     <td>${r.wins}</td>
                                     <td>${r.minutes}</td>
-                                    <td>${r.uid !== me.uid && !r.loggedToday && r.email.includes('@') ?
-                                        `<a class="btn btn-sm btn-secondary" href="mailto:${esc(r.email)}?subject=${encodeURIComponent('Learning nudge 👋')}&body=${encodeURIComponent(Fun.pick(Fun.nudges) + '\n\n' + location.href.split('#')[0])}">Nudge 👋</a>` :
+                                    <td>${r.uid !== me.uid && !r.loggedToday && email ?
+                                        `<a class="btn btn-sm btn-secondary" href="mailto:${esc(email)}?subject=${encodeURIComponent('Learning nudge 👋')}&body=${encodeURIComponent(Fun.pick(Fun.nudges) + '\n\n' + location.href.split('#')[0])}">Nudge 👋</a>` :
                                         (r.loggedToday ? '<span title="Logged today">✅</span>' : '')}</td>
-                                </tr>`).join('')}
+                                </tr>`;
+                            }).join('')}
                         </tbody>
                     </table>
+                    </div>
                 </div>`;
         }
 
-        // Share panel
+        // Share / members panel
         const pending = course.invitedEmails || [];
         const shareHtml = `
             <div class="form-section">
                 <h2>👯 Learn Together</h2>
-                <p class="muted">${shared ? 'Learners: ' + memberIds.map(u => esc(emailOf(u))).join(', ') : 'Invite a friend (anywhere in the world!) to track this course with you. They just need an account with the same email.'}</p>
+                ${shared ? `
+                    <div class="member-list">
+                        ${memberIds.map(uid => `
+                            <div class="member-chip">
+                                <span>${esc(nameOf(uid))}${uid === course.userId ? ' 👑' : ''}${uid === me.uid ? ' (you)' : ''}</span>
+                                ${isOwner && uid !== me.uid ? `<button class="icon-btn" title="Remove member" onclick="AppController.removeMember('${course.id}', '${uid}')">✕</button>` : ''}
+                            </div>`).join('')}
+                    </div>` : '<p class="muted">Invite a friend (anywhere in the world!) to track this course with you. They just need an account with the same email.</p>'}
                 ${isOwner ? `
                     <div class="share-row">
                         <input type="email" id="inviteEmail" placeholder="friend@email.com">
                         <button class="btn btn-primary" onclick="AppController.invite('${course.id}')">Send Invite ✉️</button>
                     </div>` : ''}
                 ${pending.length ? `<div class="pending">Waiting for: ${pending.map(e => `<span class="tag">${esc(e)}${isOwner ? ` <a href="#" onclick="AppController.revokeInvite('${course.id}', '${esc(e)}'); return false;" title="Cancel invite">✕</a>` : ''}</span>`).join(' ')}</div>` : ''}
+                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse('${course.id}')">Leave this course 🚪</button>` : ''}
             </div>`;
 
-        const historyRows = sortedAll.map(metric => {
-            const mine = metric.userId === me.uid;
-            return `
-            <tr>
-                <td>${Utils.formatDate(metric.date)}</td>
-                ${shared ? `<td>${esc(emailOf(metric.userId))}${mine ? ' (you)' : ''}</td>` : ''}
-                <td><span class="badge badge-${esc(metric.status.toLowerCase())}">${esc(metric.status)}</span></td>
-                <td>${Number(metric.duration) || 0} min</td>
-                <td>${esc(metric.topic)}</td>
-                <td>${esc(metric.notes)}</td>
-                <td class="actions-cell">
-                    ${mine ? `
-                        <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric('${metric.id}')">Edit</button>
-                        <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric('${metric.id}')">Delete</button>` : ''}
-                </td>
-            </tr>`;
-        }).join('');
+        // History filter options
+        const topicOptions = [...new Set(allMetrics.map(m => (m.topic || '').trim()).filter(Boolean))].sort();
+        const filterBar = `
+            <div class="filter-bar">
+                <input type="search" id="fQ" placeholder="🔍 Search topic or notes" oninput="AppController.applyFilters()">
+                <select id="fStatus" onchange="AppController.applyFilters()">
+                    <option value="">All statuses</option><option value="Done">Done</option><option value="Missed">Missed</option>
+                </select>
+                <select id="fTopic" onchange="AppController.applyFilters()">
+                    <option value="">All topics</option>
+                    ${topicOptions.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+                </select>
+                ${shared ? `<select id="fMember" onchange="AppController.applyFilters()">
+                    <option value="">Everyone</option>
+                    ${memberIds.map(u => `<option value="${u}">${esc(nameOf(u))}</option>`).join('')}
+                    ${[...new Set(allMetrics.map(m => m.userId))].filter(u => !memberIds.includes(u)).map(u => `<option value="${u}">Former member</option>`).join('')}
+                </select>` : ''}
+                <input type="date" id="fFrom" title="From" onchange="AppController.applyFilters()">
+                <input type="date" id="fTo" title="To" onchange="AppController.applyFilters()">
+                <button class="btn btn-secondary btn-sm" onclick="AppController.clearFilters()">Clear</button>
+            </div>`;
+
+        const tab = UIModule.activeTab;
+        const panel = (id) => `tab-panel ${tab === id ? 'active' : ''}`;
+        const tabBtn = (id, label) => `<button class="tab-btn ${tab === id ? 'active' : ''}" data-tab="${id}" onclick="UIModule.switchTab('${id}')">${label}</button>`;
 
         document.getElementById('app-root').innerHTML = `
             <div class="main-container">
@@ -343,143 +556,200 @@ const UIModule = {
                     </div>
                 </div>
 
+                <div class="tabs">
+                    ${tabBtn('progress', '📊 Progress')}
+                    ${tabBtn('together', '👯 Together')}
+                    ${tabBtn('log', '📝 Log &amp; History')}
+                </div>
+
                 <div class="content">
-                    <div class="mood-banner"><span class="mood-emoji">${mood.emoji}</span> ${mood.text}</div>
-                    ${!loggedToday ? '<div class="today-banner">📅 Nothing logged for today yet - even 10 minutes counts!</div>' : ''}
+                    <!-- ============ PROGRESS ============ -->
+                    <div class="${panel('progress')}" id="tab-progress">
+                        <div class="mood-banner"><span class="mood-emoji">${mood.emoji}</span> ${mood.text}</div>
+                        ${!loggedToday ? '<div class="today-banner">📅 Nothing logged for today yet - even 10 minutes counts!</div>' : ''}
 
-                    <div class="stats-grid">
-                        <div class="stat-card"><div class="stat-value">${stats.consistency}%</div><div class="stat-label">Consistency 🔥</div></div>
-                        <div class="stat-card"><div class="stat-value">${streak.current}</div><div class="stat-label">Day Streak 🔥 (best ${streak.best})</div></div>
-                        <div class="stat-card"><div class="stat-value">${stats.completed}</div><div class="stat-label">Wins 🏆</div></div>
-                        <div class="stat-card"><div class="stat-value">${stats.totalDays}</div><div class="stat-label">Days on the Journey 🗓️</div></div>
-                        <div class="stat-card"><div class="stat-value">${stats.totalMinutes}</div><div class="stat-label">Minutes of Brain Gains ⏱️</div></div>
-                    </div>
+                        <div class="stats-grid">
+                            <div class="stat-card"><div class="stat-value">${stats.consistency}%</div><div class="stat-label">Consistency 🔥</div></div>
+                            <div class="stat-card"><div class="stat-value">${streak.current}</div><div class="stat-label">Day Streak 🔥 (best ${streak.best})<br><small>🧊 Freeze ${streak.freezeUsedThisWeek ? 'used this week' : 'ready'}</small></div></div>
+                            <div class="stat-card"><div class="stat-value">${stats.completed}</div><div class="stat-label">Wins 🏆</div></div>
+                            <div class="stat-card"><div class="stat-value">${stats.totalDays}</div><div class="stat-label">Days on the Journey 🗓️</div></div>
+                            <div class="stat-card"><div class="stat-value">${stats.totalMinutes}</div><div class="stat-label">Minutes of Brain Gains ⏱️</div></div>
+                        </div>
 
-                    ${leaderboardHtml}
+                        <div class="form-section week-card">
+                            <h2>📋 Your Week in Review</h2>
+                            <div class="week-grid">
+                                <div><div class="week-num">${week.doneDays}</div><div class="week-lbl">Done days</div></div>
+                                <div><div class="week-num">${week.minutes}</div><div class="week-lbl">Minutes${week.lastMinutes ? ' (last week ' + week.lastMinutes + ')' : ''}</div></div>
+                                <div><div class="week-num">${week.bestDay ? Utils.formatDate(week.bestDay.date).replace(/, \d{4}$/, '') : '-'}</div><div class="week-lbl">Best day${week.bestDay ? ' (' + week.bestDay.minutes + ' min)' : ''}</div></div>
+                                <div><div class="week-num week-topic">${week.topTopic ? esc(week.topTopic) : '-'}</div><div class="week-lbl">Top topic</div></div>
+                            </div>
+                            <p class="verdict">${Fun.weekVerdict(week)}</p>
+                        </div>
 
-                    <div class="two-col">
-                        <div class="form-section goal-card">
-                            <h2>🎯 Today's Goal</h2>
-                            <div class="goal-body">
-                                <svg viewBox="0 0 100 100" class="ring" role="img" aria-label="${pct}% of daily goal">
-                                    <circle cx="50" cy="50" r="${R}" class="ring-bg"></circle>
-                                    <circle cx="50" cy="50" r="${R}" class="ring-fg" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}" transform="rotate(-90 50 50)"></circle>
-                                    <text x="50" y="55" text-anchor="middle" class="ring-text">${goal ? pct + '%' : '--'}</text>
-                                </svg>
-                                <div>
-                                    <p><strong>${todayMin}</strong> ${goal ? '/ ' + goal : ''} min today</p>
-                                    <div class="goal-set">
-                                        <input type="number" id="goalMinutes" min="0" placeholder="Minutes/day" value="${goal || ''}">
-                                        <button class="btn btn-secondary btn-sm" onclick="AppController.saveGoal('${course.id}')">Set goal</button>
+                        <div class="two-col">
+                            <div class="form-section goal-card">
+                                <h2>🎯 Today's Goal</h2>
+                                <div class="goal-body">
+                                    <svg viewBox="0 0 100 100" class="ring" role="img" aria-label="${pct}% of daily goal">
+                                        <circle cx="50" cy="50" r="${R}" class="ring-bg"></circle>
+                                        <circle cx="50" cy="50" r="${R}" class="ring-fg" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}" transform="rotate(-90 50 50)"></circle>
+                                        <text x="50" y="55" text-anchor="middle" class="ring-text">${goal ? pct + '%' : '--'}</text>
+                                    </svg>
+                                    <div>
+                                        <p><strong>${todayMin}</strong> ${goal ? '/ ' + goal : ''} min today</p>
+                                        <div class="goal-set">
+                                            <input type="number" id="goalMinutes" min="0" placeholder="Minutes/day" value="${goal || ''}">
+                                            <button class="btn btn-secondary btn-sm" onclick="AppController.saveGoal('${course.id}')">Set goal</button>
+                                        </div>
+                                        ${goal && pct >= 100 ? '<p class="goal-done">Goal smashed! 🎉</p>' : ''}
                                     </div>
-                                    ${goal && pct >= 100 ? '<p class="goal-done">Goal smashed! 🎉</p>' : ''}
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <h2>🏅 Badges <small>(${earned}/${badges.length})</small></h2>
+                                <div class="badges">
+                                    ${badges.map(b => `
+                                        <div class="badge-item ${b.earned ? 'earned' : 'locked'}" title="${esc(b.desc)}">
+                                            <div class="badge-emoji">${b.earned ? b.emoji : '🔒'}</div>
+                                            <div class="badge-name">${esc(b.name)}</div>
+                                        </div>`).join('')}
                                 </div>
                             </div>
                         </div>
 
                         <div class="form-section">
-                            <h2>🏅 Badges <small>(${earned}/${badges.length})</small></h2>
-                            <div class="badges">
-                                ${badges.map(b => `
-                                    <div class="badge-item ${b.earned ? 'earned' : 'locked'}" title="${esc(b.desc)}">
-                                        <div class="badge-emoji">${b.earned ? b.emoji : '🔒'}</div>
-                                        <div class="badge-name">${esc(b.name)}</div>
-                                    </div>`).join('')}
-                            </div>
+                            <h2>✅ Learning Checklist</h2>
+                            ${timelineHtml}
+                            <div id="checklistBox">${UIModule.checklistHtml(course.id)}</div>
                         </div>
-                    </div>
 
-                    <div class="form-section">
-                        <h2>🗓️ Your Learning Heatmap</h2>
-                        <div class="heatmap">${heatHtml}</div>
-                        <div class="heat-legend"><span class="heat-cell heat-none"></span> none <span class="heat-cell heat-missed"></span> missed <span class="heat-cell heat-done"></span> done</div>
-                    </div>
-
-                    <div class="two-col">
                         <div class="form-section">
-                            <h2>📈 Consistency Trend</h2>
-                            <div class="chart-box"><canvas id="trendChart"></canvas></div>
+                            <h2>🗓️ Your Learning Heatmap</h2>
+                            <div class="heatmap">${heatHtml}</div>
+                            <div class="heat-legend"><span class="heat-cell heat-none"></span> none <span class="heat-cell heat-missed"></span> missed <span class="heat-cell heat-frozen"></span> freeze 🧊 <span class="heat-cell heat-done"></span> done</div>
                         </div>
+
+                        <div class="two-col">
+                            <div class="form-section">
+                                <h2>📈 Consistency Trend</h2>
+                                <div class="chart-box"><canvas id="trendChart"></canvas></div>
+                            </div>
+                            <div class="form-section">
+                                <h2>⏱️ Minutes per Week</h2>
+                                <div class="chart-box"><canvas id="weeklyChart"></canvas></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ============ TOGETHER ============ -->
+                    <div class="${panel('together')}" id="tab-together">
+                        ${leaderboardHtml}
+                        ${UIModule.challengeHtml(course, allMetrics, isOwner)}
+                        ${shareHtml}
+                    </div>
+
+                    <!-- ============ LOG & HISTORY ============ -->
+                    <div class="${panel('log')}" id="tab-log">
+                        <div class="form-section timer-card" id="timerCard">
+                            <h2>⏱️ Focus Timer</h2>
+                            <div class="timer-row">
+                                <div class="timer-display" id="timerDisplay">00:00</div>
+                                <div class="timer-controls">
+                                    <select id="timerMode" onchange="TimerModule.setMode(this.value)">
+                                        <option value="0">Stopwatch</option>
+                                        <option value="25">Pomodoro 25 min</option>
+                                        <option value="45">Focus 45 min</option>
+                                        <option value="60">Deep work 60 min</option>
+                                    </select>
+                                    <button class="btn btn-primary btn-sm" id="timerToggle" onclick="TimerModule.toggle()">▶ Start</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="TimerModule.reset()">Reset</button>
+                                    <button class="btn btn-secondary btn-sm" id="timerUse" onclick="AppController.useTimer()" disabled>Use this time ✅</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section" id="logForm">
+                            <h2 id="formTitle">What did your brain do today? 🧠</h2>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Date *</label>
+                                    <input type="text" id="metricDate" class="datepicker" placeholder="Select date">
+                                </div>
+                                <div class="form-group">
+                                    <label>Status *</label>
+                                    <select id="metricStatus">
+                                        <option value="">Select status</option>
+                                        <option value="Done">Done 🎉</option>
+                                        <option value="Missed">Missed (we forgive you) 🫶</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Duration (minutes)</label>
+                                    <input type="number" id="metricDuration" placeholder="0" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Topic</label>
+                                    <input type="text" id="metricTopic" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
+                                </div>
+                            </div>
+                            <div class="form-group full">
+                                <label>Notes</label>
+                                <textarea id="metricNotes" placeholder="Add any notes" rows="2"></textarea>
+                            </div>
+                            <button class="btn btn-primary" id="submitMetric" onclick="AppController.addMetric('${course.id}')">Log It! ✅</button>
+                            <button class="btn btn-secondary" id="cancelEdit" style="display:none" onclick="AppController.cancelEdit()">Cancel</button>
+                        </div>
+
                         <div class="form-section">
-                            <h2>⏱️ Minutes per Week</h2>
-                            <div class="chart-box"><canvas id="weeklyChart"></canvas></div>
-                        </div>
-                    </div>
-
-                    ${shareHtml}
-
-                    <div class="form-section" id="logForm">
-                        <h2 id="formTitle">What did your brain do today? 🧠</h2>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Date *</label>
-                                <input type="text" id="metricDate" class="datepicker" placeholder="Select date">
+                            <div class="section-head">
+                                <h2>Your Hall of Fame 🏛️</h2>
+                                ${allMetrics.length ? '<button class="btn btn-secondary btn-sm" onclick="AppController.exportCSV()">📥 Export CSV</button>' : ''}
                             </div>
-                            <div class="form-group">
-                                <label>Status *</label>
-                                <select id="metricStatus">
-                                    <option value="">Select status</option>
-                                    <option value="Done">Done 🎉</option>
-                                    <option value="Missed">Missed (we forgive you) 🫶</option>
-                                </select>
-                            </div>
+                            ${allMetrics.length === 0 ? `
+                                <p style="text-align: center; color: #999;">Nothing here yet. Your legendary streak starts with one entry! 🌟</p>
+                            ` : `
+                                ${filterBar}
+                                <p class="muted" id="historyCount"></p>
+                                <div class="table-scroll">
+                                <table class="metrics-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            ${shared ? '<th>Who</th>' : ''}
+                                            <th>Status</th>
+                                            <th>Duration</th>
+                                            <th>Topic</th>
+                                            <th>Notes</th>
+                                            ${shared ? '<th>Cheers</th>' : ''}
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="historyBody"></tbody>
+                                </table>
+                                </div>
+                            `}
                         </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Duration (minutes)</label>
-                                <input type="number" id="metricDuration" placeholder="0" min="0">
-                            </div>
-                            <div class="form-group">
-                                <label>Topic</label>
-                                <input type="text" id="metricTopic" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
-                            </div>
-                        </div>
-                        <div class="form-group full">
-                            <label>Notes</label>
-                            <textarea id="metricNotes" placeholder="Add any notes" rows="2"></textarea>
-                        </div>
-                        <button class="btn btn-primary" id="submitMetric" onclick="AppController.addMetric('${course.id}')">Log It! ✅</button>
-                        <button class="btn btn-secondary" id="cancelEdit" style="display:none" onclick="AppController.cancelEdit()">Cancel</button>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="section-head">
-                            <h2>Your Hall of Fame 🏛️</h2>
-                            ${allMetrics.length ? '<button class="btn btn-secondary btn-sm" onclick="AppController.exportCSV()">📥 Export CSV</button>' : ''}
-                        </div>
-                        ${allMetrics.length === 0 ? `
-                            <p style="text-align: center; color: #999;">Nothing here yet. Your legendary streak starts with one entry! 🌟</p>
-                        ` : `
-                            <div class="table-scroll">
-                            <table class="metrics-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        ${shared ? '<th>Who</th>' : ''}
-                                        <th>Status</th>
-                                        <th>Duration</th>
-                                        <th>Topic</th>
-                                        <th>Notes</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>${historyRows}</tbody>
-                            </table>
-                            </div>
-                        `}
                     </div>
                 </div>
             </div>
         `;
         UIModule.initializeDatePickers();
         UIModule.renderCharts(myMetrics, course);
+        UIModule.refreshHistory();
+        TimerModule.mount(course.id);
     },
 
     /**
      * Render Chart.js charts (skipped gracefully if the library failed to load)
      */
     renderCharts: (myMetrics, course) => {
+        UIModule.charts = [];
         if (typeof Chart === 'undefined') return;
+        const mk = (el, cfg) => UIModule.charts.push(new Chart(el, cfg));
         const css = getComputedStyle(document.body);
         const line = css.getPropertyValue('--chart-line').trim() || '#667eea';
         const grid = css.getPropertyValue('--chart-grid').trim() || 'rgba(0,0,0,0.08)';
@@ -494,7 +764,7 @@ const UIModule = {
         const trend = Analytics.consistencyTrend(myMetrics, course.startDate, 10);
         const trendEl = document.getElementById('trendChart');
         if (trendEl) {
-            new Chart(trendEl, {
+            mk(trendEl, {
                 type: 'line',
                 data: {
                     labels: trend.map(t => t.label),
@@ -525,7 +795,7 @@ const UIModule = {
         const weekly = Analytics.weeklyMinutes(myMetrics, 8);
         const weeklyEl = document.getElementById('weeklyChart');
         if (weeklyEl) {
-            new Chart(weeklyEl, {
+            mk(weeklyEl, {
                 type: 'bar',
                 data: {
                     labels: weekly.map(w => w.label),
