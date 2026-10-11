@@ -39,7 +39,8 @@ const ProfileManager = {
             Utils.showSuccess(Fun.msg('profile'));
             return true;
         } catch (e) {
-            Utils.showError('Could not save profile: ' + e.message);
+            console.error('Profile save error:', e);
+            Utils.showError('Could not save profile: ' + Utils.explain(e));
             return false;
         }
     }

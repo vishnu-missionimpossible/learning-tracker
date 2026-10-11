@@ -84,6 +84,7 @@ const AppController = {
         try {
             UIModule.currentCourseId = null;
             UIModule.activeTab = 'progress';
+            ChatManager.stop();
             await ProfileManager.load([AuthModule.getCurrentUser().uid]);
             const [courses, invitations] = await Promise.all([
                 CourseManager.getCourses(),
@@ -91,6 +92,7 @@ const AppController = {
             ]);
             // Don't show an invitation for a course I already belong to
             const mine = new Set(courses.map(c => c.id));
+            AppController.lastCourses = courses;
             UIModule.renderCoursesScreen(courses, invitations.filter(c => !mine.has(c.id)));
             AppController.refreshInstallButton();
         } catch (error) {
@@ -146,8 +148,26 @@ const AppController = {
             ]);
             const stats = await MetricsManager.getCourseStats(courseId, course.startDate, metrics);
 
+            const switching = UIModule.currentCourseId !== courseId;
+            if (switching) {
+                UIModule.openThreads = {};
+                UIModule.fc = null;
+                UIModule.editingResourceId = null;
+                ViewsModule.resFilters = { q: '', type: '', tag: '', hideDone: false, sort: 'smart' };
+            }
+            [UIModule.resources, UIModule.flashcards, UIModule.reflections] = await Promise.all([
+                ResourceManager.getForCourse(courseId),
+                FlashcardManager.getForCourse(courseId),
+                JournalManager.getForCourse(courseId)
+            ]);
+
             UIModule.currentCourseId = courseId;
             UIModule.renderDashboardScreen(course, metrics, stats);
+
+            // Live comments / group chat
+            if (ChatManager.courseId !== courseId || !ChatManager.unsub) {
+                ChatManager.subscribe(courseId, AppController.onChatChange);
+            }
         } catch (error) {
             console.error('Error opening course:', error);
             Utils.showError('Error loading course');

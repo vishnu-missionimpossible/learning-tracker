@@ -91,6 +91,42 @@ const Utils = {
     },
 
     /**
+     * Normalise a user-typed URL. Only http(s) links are allowed.
+     * @returns {string|null} - Safe absolute URL or null
+     */
+    safeUrl: (raw) => {
+        let u = (raw || '').trim();
+        if (!u) return null;
+        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = 'https://' + u;
+        try {
+            const x = new URL(u);
+            if (x.protocol !== 'http:' && x.protocol !== 'https:') return null;
+            return x.href;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    /** Human-friendly message for Firebase errors */
+    explain: (error) => {
+        if (error && error.code === 'permission-denied') {
+            return 'Permission denied - publish the latest firestore.rules in Firebase Console (Firestore Database > Rules).';
+        }
+        return (error && error.message) || 'Something went wrong';
+    },
+
+    /** "5m ago" style label */
+    timeAgo: (value) => {
+        const ms = value && value.toMillis ? value.toMillis() : new Date(value || Date.now()).getTime();
+        const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + 'm ago';
+        if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+        if (s < 86400 * 7) return Math.floor(s / 86400) + 'd ago';
+        return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    },
+
+    /**
      * Show error message to user
      * @param {string} message - Error message
      */

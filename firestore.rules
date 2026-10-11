@@ -6,6 +6,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function courseOf(id) {
+      return get(/databases/$(database)/documents/courses/$(id)).data;
+    }
+    function isCourseOwner(id) {
+      return courseOf(id).userId == request.auth.uid;
+    }
+    function isCourseMember(id) {
+      return courseOf(id).userId == request.auth.uid
+          || request.auth.uid in courseOf(id).memberIds;
+    }
+
     // Each user can read/write only their own profile (daily goals live here)
     match /users/{userId} {
       allow read, write: if signedIn() && request.auth.uid == userId;
@@ -16,10 +27,10 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, update: if signedIn()
                     && request.auth.uid == userId
-                    && request.resource.data.keys().hasOnly(['displayName', 'avatar', 'updatedAt'])
                     && request.resource.data.displayName is string
                     && request.resource.data.displayName.size() > 0
                     && request.resource.data.displayName.size() <= 30;
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /courses/{courseId} {
@@ -64,14 +75,6 @@ service cloud.firestore {
 
     match /metrics/{metricId} {
 
-      function courseOf(id) {
-        return get(/databases/$(database)/documents/courses/$(id)).data;
-      }
-      function isCourseMember(id) {
-        return courseOf(id).userId == request.auth.uid
-            || request.auth.uid in courseOf(id).memberIds;
-      }
-
       // Everyone in the course can see everyone's entries (needed for the leaderboard)
       allow read: if signedIn() && (
                     resource.data.userId == request.auth.uid
@@ -97,6 +100,103 @@ service cloud.firestore {
 
       // Only the author can delete an entry
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // ---------------------------------------------------------------
+    // Resource library: shared per course
+    // ---------------------------------------------------------------
+    match /resources/{resId} {
+      allow read: if signedIn() && isCourseMember(resource.data.courseId);
+
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && isCourseMember(request.resource.data.courseId)
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 150
+                    && request.resource.data.url is string
+                    && request.resource.data.url.size() <= 1500;
+
+      allow update: if signedIn() && (
+                    // adder or course owner: edit / pin (cannot move it to another course)
+                    ((resource.data.userId == request.auth.uid || isCourseOwner(resource.data.courseId))
+                      && request.resource.data.courseId == resource.data.courseId
+                      && request.resource.data.userId == resource.data.userId)
+                    // any member: only toggle THEIR OWN "helpful" vote / "done" mark
+                    || (isCourseMember(resource.data.courseId)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'doneBy'])
+                        && request.resource.data.likes.diff(resource.data.likes).affectedKeys().hasOnly([request.auth.uid])
+                        && request.resource.data.doneBy.diff(resource.data.doneBy).affectedKeys().hasOnly([request.auth.uid]))
+                  );
+
+      allow delete: if signedIn() && (resource.data.userId == request.auth.uid
+                                      || isCourseOwner(resource.data.courseId));
+    }
+
+    // ---------------------------------------------------------------
+    // Comments & group chat: shared per course
+    // ---------------------------------------------------------------
+    match /comments/{commentId} {
+      allow read: if signedIn() && isCourseMember(resource.data.courseId);
+
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && isCourseMember(request.resource.data.courseId)
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
+                    && request.resource.data.text.size() <= 500;
+
+      allow delete: if signedIn() && (resource.data.userId == request.auth.uid
+                                      || isCourseOwner(resource.data.courseId));
+    }
+
+    // ---------------------------------------------------------------
+    // Flashcards & weekly reflections: private to each user
+    // ---------------------------------------------------------------
+    match /flashcards/{cardId} {
+      allow read, update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.front.size() <= 300
+                    && request.resource.data.back.size() <= 1000;
+    }
+
+    match /reflections/{reflectionId} {
+      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ---------------------------------------------------------------
+    // Study buddies
+    // ---------------------------------------------------------------
+    match /buddyPosts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.topic.size() > 0
+                    && request.resource.data.topic.size() <= 60;
+      allow update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // One request per person per post (document id = postId_requesterUid)
+    match /buddyRequests/{requestId} {
+      allow read: if signedIn() && (resource.data.fromUid == request.auth.uid
+                                    || resource.data.toUid == request.auth.uid);
+
+      allow create: if signedIn()
+                    && request.resource.data.fromUid == request.auth.uid
+                    && request.resource.data.toUid != request.auth.uid
+                    && requestId == request.resource.data.postId + '_' + request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.message.size() <= 300;
+
+      // the post owner answers the request; nothing else may change
+      allow update: if signedIn()
+                    && resource.data.toUid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+                    && request.resource.data.status in ['accepted', 'declined', 'invited'];
+
+      allow delete: if signedIn() && (resource.data.fromUid == request.auth.uid
+                                      || resource.data.toUid == request.auth.uid);
     }
   }
 }

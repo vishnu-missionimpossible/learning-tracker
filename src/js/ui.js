@@ -155,6 +155,13 @@ const UIModule = {
     },
 
     activeTab: 'progress',
+    denied: {},
+    resources: [],
+    flashcards: [],
+    reflections: [],
+    openThreads: {},
+    fc: null,
+    editingResourceId: null,
     filters: { q: '', status: '', member: '', topic: '', from: '', to: '' },
     charts: [],
 
@@ -263,11 +270,14 @@ const UIModule = {
                 <td>${esc(metric.notes)}</td>
                 ${shared ? `<td>${cheers}</td>` : ''}
                 <td class="actions-cell">
+                    ${shared ? `<button class="chip-btn ${UIModule.openThreads['entry:' + metric.id] ? 'on' : ''}" title="Comments" onclick="AppController.toggleThread('entry','${metric.id}')">💬 ${ChatManager.count('entry', metric.id) || ''}</button>` : ''}
                     ${mine ? `
+                        <button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard('${metric.id}')">🃏</button>
                         <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric('${metric.id}')">Edit</button>
                         <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric('${metric.id}')">Delete</button>` : ''}
                 </td>
-            </tr>`;
+            </tr>
+            ${shared && UIModule.openThreads['entry:' + metric.id] ? `<tr class="thread-row"><td colspan="9">${ViewsModule.threadHtml('entry', metric.id)}</td></tr>` : ''}`;
         }).join('');
     },
 
@@ -379,6 +389,7 @@ const UIModule = {
                     </div>
                     <div class="header-actions">
                         <button class="btn btn-primary" onclick="AppController.showCourseSetup()">+ New Adventure ✨</button>
+                        <button class="btn btn-secondary" onclick="AppController.showBuddies()">🤝 Study Buddies</button>
                         <button class="btn btn-secondary" onclick="UIModule.showProfileModal()">👤 Profile</button>
                         <button class="btn btn-secondary" id="installBtn" style="display:none" onclick="AppController.installApp()">📲 Install</button>
                         <button class="btn btn-secondary" onclick="AppController.logout()">Logout</button>
@@ -446,6 +457,10 @@ const UIModule = {
         const R = 42, C = 2 * Math.PI * R;
         const loggedToday = Analytics.hasLoggedToday(myMetrics);
         const week = Analytics.weekReview(myMetrics);
+        const weekStartKey = Analytics.weekStart(Analytics.today());
+        const dow = new Date().getDay(); // Fri=5, Sat=6, Sun=0
+        const reflectDue = (dow === 5 || dow === 6 || dow === 0) &&
+            !UIModule.reflections.some(r => r.weekStart === weekStartKey);
 
         // Course timeline (only when there is an end date)
         let timelineHtml = '';
@@ -559,6 +574,9 @@ const UIModule = {
                 <div class="tabs">
                     ${tabBtn('progress', '📊 Progress')}
                     ${tabBtn('together', '👯 Together')}
+                    ${tabBtn('library', '📚 Library')}
+                    ${tabBtn('cards', '🃏 Flashcards')}
+                    ${tabBtn('journal', '📓 Journal')}
                     ${tabBtn('log', '📝 Log &amp; History')}
                 </div>
 
@@ -567,6 +585,7 @@ const UIModule = {
                     <div class="${panel('progress')}" id="tab-progress">
                         <div class="mood-banner"><span class="mood-emoji">${mood.emoji}</span> ${mood.text}</div>
                         ${!loggedToday ? '<div class="today-banner">📅 Nothing logged for today yet - even 10 minutes counts!</div>' : ''}
+                        ${reflectDue ? '<div class="today-banner">📓 Weekend reflection time! <a href="#" onclick="UIModule.switchTab(\'journal\'); return false;">Write this week\'s reflection</a></div>' : ''}
 
                         <div class="stats-grid">
                             <div class="stat-card"><div class="stat-value">${stats.consistency}%</div><div class="stat-label">Consistency 🔥</div></div>
@@ -646,9 +665,19 @@ const UIModule = {
                     <!-- ============ TOGETHER ============ -->
                     <div class="${panel('together')}" id="tab-together">
                         ${leaderboardHtml}
+                        ${shared ? `<div class="form-section"><h2>💬 Group Chat</h2>${ViewsModule.deniedNotice('chat')}<div id="courseChat">${ViewsModule.threadHtml('course', course.id, true)}</div></div>` : ''}
                         ${UIModule.challengeHtml(course, allMetrics, isOwner)}
                         ${shareHtml}
                     </div>
+
+                    <!-- ============ LIBRARY ============ -->
+                    <div class="${panel('library')}" id="tab-library">${ViewsModule.libraryHtml(course)}</div>
+
+                    <!-- ============ FLASHCARDS ============ -->
+                    <div class="${panel('cards')}" id="tab-cards">${ViewsModule.flashcardsHtml(course)}</div>
+
+                    <!-- ============ JOURNAL ============ -->
+                    <div class="${panel('journal')}" id="tab-journal">${ViewsModule.journalHtml(course)}</div>
 
                     <!-- ============ LOG & HISTORY ============ -->
                     <div class="${panel('log')}" id="tab-log">

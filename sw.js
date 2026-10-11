@@ -3,12 +3,12 @@
  * Strategy: network-first for our own files (so updates show immediately),
  * cache as fallback. Firebase/API traffic is never intercepted.
  */
-const CACHE = 'learning-tracker-v3';
+const CACHE = 'learning-tracker-v4';
 const SHELL = [
     './', 'index.html', 'manifest.json',
     'src/css/styles.css',
     'src/js/utils.js', 'src/js/fun.js', 'src/js/analytics.js', 'src/js/profile.js', 'src/js/timer.js', 'src/js/settings.js',
-    'src/js/auth.js', 'src/js/courseManager.js', 'src/js/shareManager.js',
+    'src/js/auth.js', 'src/js/resources.js', 'src/js/chat.js', 'src/js/flashcards.js', 'src/js/journal.js', 'src/js/buddy.js', 'src/js/views.js', 'src/js/appExtra.js', 'src/js/courseManager.js', 'src/js/shareManager.js',
     'src/js/metricsManager.js', 'src/js/ui.js', 'src/js/app.js',
     'config/firebase.js', 'icons/icon-192.png', 'icons/icon-512.png'
 ];
