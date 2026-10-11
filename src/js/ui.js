@@ -898,6 +898,20 @@ const UIModule = {
                 });
             }
         });
+
+        // Course form: end date can never be before the start date
+        const startEl = document.getElementById('startDate');
+        const endEl = document.getElementById('endDate');
+        if (startEl && endEl && startEl._flatpickr && endEl._flatpickr && !startEl._linked) {
+            startEl._linked = true;
+            const sync = () => {
+                const start = startEl.value;
+                endEl._flatpickr.set('minDate', start || '2020-01-01');
+                if (start && endEl.value && endEl.value < start) endEl._flatpickr.clear();
+            };
+            startEl._flatpickr.config.onChange.push(sync);
+            sync();
+        }
     }
 };
 

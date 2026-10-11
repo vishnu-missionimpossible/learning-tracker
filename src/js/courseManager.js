@@ -31,6 +31,9 @@ const CourseManager = {
             if (courseData.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(courseData.endDate)) {
                 throw new Error('End date is not valid');
             }
+            if (courseData.endDate && courseData.endDate < courseData.startDate) {
+                throw new Error('End date cannot be before the start date');
+            }
 
 
             const course = {
