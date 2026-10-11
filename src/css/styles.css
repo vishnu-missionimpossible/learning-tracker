@@ -806,3 +806,30 @@ body.dark .flatpickr-calendar { background: var(--card-bg); }
     .invite-card { flex-direction: column; align-items: flex-start; }
     .content { padding: 18px; }
 }
+
+/* ==================== MODAL / iOS INSTALL ==================== */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 10001;
+}
+.modal-box {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: var(--shadow-lg);
+    animation: pop-in 0.3s ease both;
+}
+.modal-box h2 { margin-bottom: 14px; }
+.ios-steps { margin: 0 0 14px 20px; line-height: 1.8; }
+.install-link-wrap a { color: var(--primary); font-weight: 600; text-decoration: none; }
+body.dark .auth-form { color: var(--text-primary); }

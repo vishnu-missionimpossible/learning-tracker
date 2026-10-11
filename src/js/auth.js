@@ -71,6 +71,29 @@ const AuthModule = {
     },
 
     /**
+     * Send password reset email
+     * @param {string} email - Account email
+     */
+    resetPassword: async (email) => {
+        try {
+            const clean = (email || '').trim();
+            if (!Utils.isValidEmail(clean)) {
+                throw new Error('Please enter a valid email');
+            }
+            await auth.sendPasswordResetEmail(clean);
+            // Same message whether or not the account exists (avoids leaking who has an account)
+            Utils.showSuccess('If an account exists for that email, a reset link is on its way 📬 (check spam too)');
+            return true;
+        } catch (error) {
+            const msg = error.code === 'auth/too-many-requests'
+                ? 'Too many attempts. Please wait a few minutes and try again.'
+                : error.message;
+            Utils.showError(msg);
+            return false;
+        }
+    },
+
+    /**
      * Sign out user
      * @returns {Promise} - Firebase auth promise
      */

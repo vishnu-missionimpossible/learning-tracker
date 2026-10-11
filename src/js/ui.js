@@ -49,12 +49,47 @@ const UIModule = {
                     </div>
                     <button class="btn btn-primary" onclick="AppController.signin()">Back to Learning 🎓</button>
                     <p class="form-footer">
+                        <a href="#" onclick="UIModule.showResetForm(); return false;">Forgot password? 🤔</a>
+                    </p>
+                    <p class="form-footer">
                         New user?
                         <a href="#" onclick="UIModule.toggleAuthForms()">Create Account</a>
                     </p>
                 </div>
+
+                <div id="resetForm" class="auth-form" style="display: none;">
+                    <h2>Reset your password 🔑</h2>
+                    <p class="muted">Enter your email and we'll send you a link to choose a new password.</p>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="resetEmail" placeholder="your@email.com">
+                    </div>
+                    <button class="btn btn-primary" onclick="AppController.resetPassword()">Send Reset Link 📬</button>
+                    <p class="form-footer">
+                        <a href="#" onclick="UIModule.showLoginForm(); return false;">← Back to Sign In</a>
+                    </p>
+                </div>
+
+                <p class="form-footer install-link-wrap">
+                    <a href="#" id="installBtn" style="display:none" onclick="AppController.installApp(); return false;">📲 Install this app</a>
+                </p>
             </div>
         `;
+        AppController.refreshInstallButton();
+    },
+
+    showResetForm: () => {
+        document.getElementById('signupForm').style.display = 'none';
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('resetForm').style.display = 'block';
+        const login = document.getElementById('loginEmail');
+        if (login && login.value) document.getElementById('resetEmail').value = login.value;
+    },
+
+    showLoginForm: () => {
+        document.getElementById('signupForm').style.display = 'none';
+        document.getElementById('resetForm').style.display = 'none';
+        document.getElementById('loginForm').style.display = 'block';
     },
 
     /**
@@ -63,6 +98,7 @@ const UIModule = {
     toggleAuthForms: () => {
         const signupForm = document.getElementById('signupForm');
         const loginForm = document.getElementById('loginForm');
+        document.getElementById('resetForm').style.display = 'none';
         signupForm.style.display = signupForm.style.display === 'none' ? 'block' : 'none';
         loginForm.style.display = loginForm.style.display === 'none' ? 'block' : 'none';
     },

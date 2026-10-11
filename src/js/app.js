@@ -61,6 +61,16 @@ const AppController = {
     },
 
     /**
+     * Send password reset email
+     */
+    resetPassword: async () => {
+        const email = document.getElementById('resetEmail').value;
+        if (await AuthModule.resetPassword(email)) {
+            UIModule.showLoginForm();
+        }
+    },
+
+    /**
      * Log out user
      */
     logout: async () => {
@@ -312,18 +322,61 @@ const AppController = {
         }
     },
 
+    /** iPhone / iPad (iPadOS reports itself as a Mac with touch) */
+    isIOS: () => {
+        const ua = navigator.userAgent || '';
+        return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    },
+
+    isStandalone: () => {
+        return window.navigator.standalone === true ||
+            (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    },
+
     refreshInstallButton: () => {
         const btn = document.getElementById('installBtn');
-        if (btn) btn.style.display = AppController.deferredInstall ? 'inline-block' : 'none';
+        if (!btn) return;
+        // Android/desktop: browser offers a native prompt. iOS: no prompt exists, so we show instructions.
+        const canShow = !AppController.isStandalone() &&
+            (AppController.deferredInstall || AppController.isIOS());
+        btn.style.display = canShow ? 'inline-block' : 'none';
     },
 
     installApp: async () => {
         const evt = AppController.deferredInstall;
-        if (!evt) return;
-        evt.prompt();
-        await evt.userChoice;
-        AppController.deferredInstall = null;
-        AppController.refreshInstallButton();
+        if (evt) {
+            evt.prompt();
+            await evt.userChoice;
+            AppController.deferredInstall = null;
+            AppController.refreshInstallButton();
+            return;
+        }
+        if (AppController.isIOS()) AppController.showIOSInstallHelp();
+    },
+
+    showIOSInstallHelp: () => {
+        if (document.getElementById('iosInstall')) return;
+        const ua = navigator.userAgent || '';
+        // On iOS, only Safari (and, from iOS 16.4, other browsers' share menu) can add to Home Screen
+        const note = /CriOS|FxiOS|EdgiOS/.test(ua)
+            ? '<p class="muted">Tip: if you do not see "Add to Home Screen", open this page in Safari.</p>' : '';
+        const overlay = document.createElement('div');
+        overlay.id = 'iosInstall';
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-box">
+                <h2>📲 Install on iPhone / iPad</h2>
+                <ol class="ios-steps">
+                    <li>Tap the <strong>Share</strong> button <span class="ios-share">⬆️</span> (bottom of Safari, or top-right on iPad)</li>
+                    <li>Scroll down and tap <strong>Add to Home Screen</strong> ➕</li>
+                    <li>Tap <strong>Add</strong> - done! 🎉</li>
+                </ol>
+                ${note}
+                <p class="muted">Reminders also work on iPhone once the app is added to your Home Screen (iOS 16.4+).</p>
+                <button class="btn btn-primary" onclick="document.getElementById('iosInstall').remove()">Got it</button>
+            </div>`;
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
     },
 
     /**
