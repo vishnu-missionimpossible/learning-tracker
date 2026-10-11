@@ -263,7 +263,12 @@ const Analytics = {
 
     /** CSV text for entries (adds a Member column) */
     toCSV: (course, metrics, emailOf) => {
-        const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+        // Cells starting with = + - @ (or tab/CR) can run as formulas in Excel/Sheets: neutralise with a leading apostrophe
+        const esc = (v) => {
+            let t = String(v == null ? '' : v);
+            if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+            return '"' + t.replace(/"/g, '""') + '"';
+        };
         const header = ['Course', 'Date', 'Member', 'Status', 'Duration (min)', 'Topic', 'Notes'];
         const rows = metrics.map(m => [
             course.courseName, m.date, emailOf(m.userId), m.status, m.duration || 0, m.topic || '', m.notes || ''

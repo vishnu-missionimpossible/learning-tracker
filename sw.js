@@ -3,11 +3,11 @@
  * Strategy: network-first for our own files (so updates show immediately),
  * cache as fallback. Firebase/API traffic is never intercepted.
  */
-const CACHE = 'learning-tracker-v4';
+const CACHE = 'learning-tracker-v5';
 const SHELL = [
     './', 'index.html', 'manifest.json',
     'src/css/styles.css',
-    'src/js/utils.js', 'src/js/fun.js', 'src/js/analytics.js', 'src/js/profile.js', 'src/js/timer.js', 'src/js/settings.js',
+    'src/js/security.js', 'src/js/utils.js', 'src/js/fun.js', 'src/js/analytics.js', 'src/js/profile.js', 'src/js/timer.js', 'src/js/settings.js',
     'src/js/auth.js', 'src/js/resources.js', 'src/js/chat.js', 'src/js/flashcards.js', 'src/js/journal.js', 'src/js/buddy.js', 'src/js/views.js', 'src/js/appExtra.js', 'src/js/courseManager.js', 'src/js/shareManager.js',
     'src/js/metricsManager.js', 'src/js/ui.js', 'src/js/app.js',
     'config/firebase.js', 'icons/icon-192.png', 'icons/icon-512.png'
@@ -33,8 +33,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
         fetch(req)
             .then(res => {
-                const copy = res.clone();
-                caches.open(CACHE).then(c => c.put(req, copy));
+                // Only cache good same-origin responses (never cache errors)
+                if (res.ok && res.type === 'basic') {
+                    const copy = res.clone();
+                    caches.open(CACHE).then(c => c.put(req, copy));
+                }
                 return res;
             })
             .catch(() => caches.match(req).then(hit => hit || caches.match('index.html')))

@@ -25,18 +25,20 @@ const CourseManager = {
             if (!courseData.courseName || !courseData.courseName.trim()) {
                 throw new Error('Course name is required');
             }
-            if (!courseData.startDate) {
+            if (!courseData.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(courseData.startDate)) {
                 throw new Error('Start date is required');
             }
+            if (courseData.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(courseData.endDate)) {
+                throw new Error('End date is not valid');
+            }
 
-            console.log('Creating course with data:', courseData);
 
             const course = {
                 userId: userId,
-                courseName: courseData.courseName.trim(),
+                courseName: courseData.courseName.trim().slice(0, 100),
                 startDate: courseData.startDate,
                 endDate: courseData.endDate || null,
-                description: courseData.description || '',
+                description: (courseData.description || '').slice(0, 500),
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 isActive: true,

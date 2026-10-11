@@ -24,11 +24,16 @@ const UIModule = {
                     <h2>Join the Brain Gym 🏋️</h2>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="email" id="signupEmail" placeholder="your@email.com">
+                        <input type="email" id="signupEmail" placeholder="your@email.com" autocomplete="email" maxlength="254">
                     </div>
                     <div class="form-group">
                         <label>Password</label>
-                        <input type="password" id="signupPassword" placeholder="At least 6 characters">
+                        <input type="password" id="signupPassword" placeholder="8+ characters, letters and numbers" autocomplete="new-password" maxlength="128" oninput="UIModule.checkPasswordMatch()">
+                    </div>
+                    <div class="form-group">
+                        <label>Confirm Password</label>
+                        <input type="password" id="signupConfirm" placeholder="Type it again" autocomplete="new-password" maxlength="128" oninput="UIModule.checkPasswordMatch()" onkeydown="if(event.key==='Enter'){AppController.signup()}">
+                        <small id="pwMatchHint" class="pw-hint"></small>
                     </div>
                     <button class="btn btn-primary" onclick="AppController.signup()">Let's Go! 🚀</button>
                     <p class="form-footer">
@@ -41,11 +46,11 @@ const UIModule = {
                     <h2>Welcome back, legend 🦸</h2>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="email" id="loginEmail" placeholder="your@email.com">
+                        <input type="email" id="loginEmail" placeholder="your@email.com" autocomplete="email" maxlength="254">
                     </div>
                     <div class="form-group">
                         <label>Password</label>
-                        <input type="password" id="loginPassword" placeholder="Your password">
+                        <input type="password" id="loginPassword" placeholder="Your password" autocomplete="current-password" maxlength="128" onkeydown="if(event.key==='Enter'){AppController.signin()}">
                     </div>
                     <button class="btn btn-primary" onclick="AppController.signin()">Back to Learning 🎓</button>
                     <p class="form-footer">
@@ -62,7 +67,7 @@ const UIModule = {
                     <p class="muted">Enter your email and we'll send you a link to choose a new password.</p>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="email" id="resetEmail" placeholder="your@email.com">
+                        <input type="email" id="resetEmail" placeholder="your@email.com" autocomplete="email" maxlength="254">
                     </div>
                     <button class="btn btn-primary" onclick="AppController.resetPassword()">Send Reset Link 📬</button>
                     <p class="form-footer">
@@ -76,6 +81,25 @@ const UIModule = {
             </div>
         `;
         AppController.refreshInstallButton();
+    },
+
+    /** Live hint under the confirm-password box */
+    checkPasswordMatch: () => {
+        const pw = document.getElementById('signupPassword').value;
+        const confirm = document.getElementById('signupConfirm').value;
+        const hint = document.getElementById('pwMatchHint');
+        if (!hint) return;
+        const issue = pw ? Utils.passwordIssue(pw) : '';
+        if (issue) {
+            hint.textContent = '⚠️ ' + issue;
+            hint.className = 'pw-hint bad';
+        } else if (confirm) {
+            const ok = pw === confirm;
+            hint.textContent = ok ? '✅ Passwords match' : '❌ Passwords do not match';
+            hint.className = 'pw-hint ' + (ok ? 'good' : 'bad');
+        } else {
+            hint.textContent = '';
+        }
     },
 
     showResetForm: () => {
@@ -119,11 +143,11 @@ const UIModule = {
                         <h2>What are we conquering? 🏔️</h2>
                         <div class="form-group">
                             <label>Course Name *</label>
-                            <input type="text" id="courseName" placeholder="e.g., Python (snakes not included) 🐍">
+                            <input type="text" id="courseName" maxlength="100" placeholder="e.g., Python (snakes not included) 🐍">
                         </div>
                         <div class="form-group">
                             <label>Description</label>
-                            <textarea id="courseDescription" placeholder="Brief description of the course" rows="3"></textarea>
+                            <textarea id="courseDescription" maxlength="500" placeholder="Brief description of the course" rows="3"></textarea>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
@@ -186,11 +210,16 @@ const UIModule = {
                             <input type="text" id="chTitle" placeholder="e.g., Study sprint" maxlength="80">
                             <input type="number" id="chTarget" min="1" max="365" placeholder="Done days" value="5">
                             <input type="number" id="chDays" min="1" max="365" placeholder="Within days" value="7">
-                            <button class="btn btn-primary" onclick="AppController.startChallenge('${course.id}')">Start Challenge 🏁</button>
+                            <button class="btn btn-primary" onclick="AppController.startChallenge(${Utils.js(course.id)})">Start Challenge 🏁</button>
                         </div>` : '<p class="muted">The course owner can start a challenge.</p>'}
                 </div>`;
         }
-        const ch = prog.ch;
+        const ch = {
+            title: prog.ch.title,
+            target: Math.max(1, Number(prog.ch.target) || 1),
+            startDate: String(prog.ch.startDate || ''),
+            endDate: String(prog.ch.endDate || '')
+        };
         const status = prog.ended
             ? (prog.winners.length ? '🏆 Winner' + (prog.winners.length > 1 ? 's' : '') + ': ' + prog.winners.map(w => esc(UIModule.nameOf(course, w.uid))).join(', ') : 'Ended - nobody logged days. Next time! 😅')
             : `⏳ ${prog.daysLeft} day${prog.daysLeft === 1 ? '' : 's'} left`;
@@ -201,10 +230,10 @@ const UIModule = {
                 ${prog.rows.map(r => `
                     <div class="chal-row">
                         <div class="chal-name">${esc(UIModule.nameOf(course, r.uid))}${r.reached ? ' ✅' : ''}</div>
-                        <div class="chal-bar"><div class="chal-fill ${r.reached ? 'done' : ''}" style="width:${r.pct}%"></div></div>
+                        <div class="chal-bar"><div class="chal-fill ${r.reached ? 'done' : ''}" style="width:${Number(r.pct) || 0}%"></div></div>
                         <div class="chal-count">${r.days}/${ch.target}</div>
                     </div>`).join('')}
-                ${isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="AppController.endChallenge('${course.id}')">${prog.ended ? 'Clear challenge' : 'End challenge'}</button>` : ''}
+                ${isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="AppController.endChallenge(${Utils.js(course.id)})">${prog.ended ? 'Clear challenge' : 'End challenge'}</button>` : ''}
             </div>`;
     },
 
@@ -220,13 +249,13 @@ const UIModule = {
             <ul class="checklist">
                 ${items.map(i => `
                     <li class="${i.done ? 'checked' : ''}">
-                        <label><input type="checkbox" ${i.done ? 'checked' : ''} onchange="AppController.toggleChecklist('${courseId}', '${i.id}')"> <span>${esc(i.title)}</span></label>
-                        <button class="icon-btn" title="Remove" onclick="AppController.removeChecklist('${courseId}', '${i.id}')">✕</button>
+                        <label><input type="checkbox" ${i.done ? 'checked' : ''} onchange="AppController.toggleChecklist(${Utils.js(courseId)}, ${Utils.js(i.id)})"> <span>${esc(i.title)}</span></label>
+                        <button class="icon-btn" title="Remove" onclick="AppController.removeChecklist(${Utils.js(courseId)}, ${Utils.js(i.id)})">✕</button>
                     </li>`).join('')}
             </ul>
             <div class="share-row">
-                <input type="text" id="checklistInput" placeholder="Add a topic, e.g., Functions" maxlength="120" onkeydown="if(event.key==='Enter'){AppController.addChecklist('${courseId}')}">
-                <button class="btn btn-secondary" onclick="AppController.addChecklist('${courseId}')">Add</button>
+                <input type="text" id="checklistInput" placeholder="Add a topic, e.g., Functions" maxlength="120" onkeydown="if(event.key==='Enter'){AppController.addChecklist(${Utils.js(courseId)})}">
+                <button class="btn btn-secondary" onclick="AppController.addChecklist(${Utils.js(courseId)})">Add</button>
             </div>`;
     },
 
@@ -257,7 +286,7 @@ const UIModule = {
                     ${Fun.reactionEmojis.map(e => {
                         const n = counts[e] || 0;
                         if (mine) return n ? `<span class="cheer">${e}${n}</span>` : '';
-                        return `<button class="cheer cheer-btn ${myReaction === e ? 'on' : ''}" onclick="AppController.react('${metric.id}', '${e}')" title="React">${e}${n ? n : ''}</button>`;
+                        return `<button class="cheer cheer-btn ${myReaction === e ? 'on' : ''}" onclick="AppController.react(${Utils.js(metric.id)}, ${Utils.js(e)})" title="React">${e}${n ? n : ''}</button>`;
                     }).join('')}
                 </div>` : '';
             return `
@@ -270,11 +299,11 @@ const UIModule = {
                 <td>${esc(metric.notes)}</td>
                 ${shared ? `<td>${cheers}</td>` : ''}
                 <td class="actions-cell">
-                    ${shared ? `<button class="chip-btn ${UIModule.openThreads['entry:' + metric.id] ? 'on' : ''}" title="Comments" onclick="AppController.toggleThread('entry','${metric.id}')">💬 ${ChatManager.count('entry', metric.id) || ''}</button>` : ''}
+                    ${shared ? `<button class="chip-btn ${UIModule.openThreads['entry:' + metric.id] ? 'on' : ''}" title="Comments" onclick="AppController.toggleThread('entry',${Utils.js(metric.id)})">💬 ${ChatManager.count('entry', metric.id) || ''}</button>` : ''}
                     ${mine ? `
-                        <button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard('${metric.id}')">🃏</button>
-                        <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric('${metric.id}')">Edit</button>
-                        <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric('${metric.id}')">Delete</button>` : ''}
+                        <button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard(${Utils.js(metric.id)})">🃏</button>
+                        <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric(${Utils.js(metric.id)})">Edit</button>
+                        <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric(${Utils.js(metric.id)})">Delete</button>` : ''}
                 </td>
             </tr>
             ${shared && UIModule.openThreads['entry:' + metric.id] ? `<tr class="thread-row"><td colspan="9">${ViewsModule.threadHtml('entry', metric.id)}</td></tr>` : ''}`;
@@ -311,9 +340,9 @@ const UIModule = {
                 </div>
                 <label>Pick an avatar</label>
                 <div class="avatar-grid" id="avatarGrid">
-                    ${Fun.avatars.map(a => `<button type="button" class="avatar-opt ${a === current ? 'selected' : ''}" data-avatar="${a}" onclick="UIModule.pickAvatar('${a}')">${a}</button>`).join('')}
+                    ${Fun.avatars.map(a => `<button type="button" class="avatar-opt ${a === current ? 'selected' : ''}" data-avatar="${Utils.esc(a)}" onclick="UIModule.pickAvatar(${Utils.js(a)})">${a}</button>`).join('')}
                 </div>
-                <input type="hidden" id="profileAvatar" value="${current}">
+                <input type="hidden" id="profileAvatar" value="${Utils.esc(current)}">
                 <div class="modal-actions">
                     <button class="btn btn-primary" onclick="AppController.saveProfile()">Save</button>
                     <button class="btn btn-secondary" onclick="document.getElementById('profileModal').remove()">Cancel</button>
@@ -346,8 +375,8 @@ const UIModule = {
                     invited you to learn <strong>${esc(c.courseName)}</strong> together!
                 </div>
                 <div class="invite-actions">
-                    <button class="btn btn-primary btn-sm" onclick="AppController.acceptInvite('${c.id}')">Join the squad 🎉</button>
-                    <button class="btn btn-secondary btn-sm" onclick="AppController.declineInvite('${c.id}')">Maybe later</button>
+                    <button class="btn btn-primary btn-sm" onclick="AppController.acceptInvite(${Utils.js(c.id)})">Join the squad 🎉</button>
+                    <button class="btn btn-secondary btn-sm" onclick="AppController.declineInvite(${Utils.js(c.id)})">Maybe later</button>
                 </div>
             </div>
         `).join('');
@@ -372,8 +401,8 @@ const UIModule = {
                     ${course.endDate ? `<small>Ends: ${Utils.formatDate(course.endDate)}</small>` : ''}
                 </div>
                 <div class="course-actions">
-                    <button class="btn btn-primary" onclick="AppController.openCourse('${course.id}')">Continue Quest ⚔️</button>
-                    ${isOwner ? `<button class="btn btn-secondary" onclick="AppController.deleteCourse('${course.id}')">Delete</button>` : ''}
+                    <button class="btn btn-primary" onclick="AppController.openCourse(${Utils.js(course.id)})">Continue Quest ⚔️</button>
+                    ${isOwner ? `<button class="btn btn-secondary" onclick="AppController.deleteCourse(${Utils.js(course.id)})">Delete</button>` : ''}
                 </div>
             </div>`;
         }).join('');
@@ -399,6 +428,10 @@ const UIModule = {
                 <div class="content">
                     <div class="quote-banner">💡 ${esc(Fun.dailyQuote())}</div>
 
+                    ${!me.emailVerified ? `<div class="today-banner">📧 Please verify your email (<strong>${esc(me.email)}</strong>). Verification is needed to accept course invitations and use Study Buddies.
+                        <a href="#" onclick="AppController.resendVerification(); return false;">Resend email</a> &middot;
+                        <a href="#" onclick="AppController.refreshVerification(); return false;">I've verified - refresh</a></div>` : ''}
+
                     ${!profile ? `<div class="today-banner">👋 Pick a display name and avatar so friends see more than your email. <a href="#" onclick="UIModule.showProfileModal(); return false;">Set up profile</a></div>` : ''}
 
                     ${invitations.length ? `<div class="invites"><h2>📬 You have invitations!</h2>${invitesHtml}</div>` : ''}
@@ -417,7 +450,7 @@ const UIModule = {
 
                     <div class="settings-strip">
                         <label for="reminderTime">⏰ Daily reminder</label>
-                        <input type="time" id="reminderTime" value="${reminder}">
+                        <input type="time" id="reminderTime" value="${esc(reminder)}">
                         <button class="btn btn-secondary btn-sm" onclick="AppController.saveReminder()">Save</button>
                         <small>Reminds you while the app is open or installed. Clear the time to turn it off.</small>
                     </div>
@@ -500,7 +533,7 @@ const UIModule = {
                                     <td>${r.wins}</td>
                                     <td>${r.minutes}</td>
                                     <td>${r.uid !== me.uid && !r.loggedToday && email ?
-                                        `<a class="btn btn-sm btn-secondary" href="mailto:${esc(email)}?subject=${encodeURIComponent('Learning nudge 👋')}&body=${encodeURIComponent(Fun.pick(Fun.nudges) + '\n\n' + location.href.split('#')[0])}">Nudge 👋</a>` :
+                                        `<a class="btn btn-sm btn-secondary" href="mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('Learning nudge 👋')}&body=${encodeURIComponent(Fun.pick(Fun.nudges) + '\n\n' + location.href.split('#')[0])}">Nudge 👋</a>` :
                                         (r.loggedToday ? '<span title="Logged today">✅</span>' : '')}</td>
                                 </tr>`;
                             }).join('')}
@@ -520,16 +553,16 @@ const UIModule = {
                         ${memberIds.map(uid => `
                             <div class="member-chip">
                                 <span>${esc(nameOf(uid))}${uid === course.userId ? ' 👑' : ''}${uid === me.uid ? ' (you)' : ''}</span>
-                                ${isOwner && uid !== me.uid ? `<button class="icon-btn" title="Remove member" onclick="AppController.removeMember('${course.id}', '${uid}')">✕</button>` : ''}
+                                ${isOwner && uid !== me.uid ? `<button class="icon-btn" title="Remove member" onclick="AppController.removeMember(${Utils.js(course.id)}, ${Utils.js(uid)})">✕</button>` : ''}
                             </div>`).join('')}
                     </div>` : '<p class="muted">Invite a friend (anywhere in the world!) to track this course with you. They just need an account with the same email.</p>'}
                 ${isOwner ? `
                     <div class="share-row">
                         <input type="email" id="inviteEmail" placeholder="friend@email.com">
-                        <button class="btn btn-primary" onclick="AppController.invite('${course.id}')">Send Invite ✉️</button>
+                        <button class="btn btn-primary" onclick="AppController.invite(${Utils.js(course.id)})">Send Invite ✉️</button>
                     </div>` : ''}
-                ${pending.length ? `<div class="pending">Waiting for: ${pending.map(e => `<span class="tag">${esc(e)}${isOwner ? ` <a href="#" onclick="AppController.revokeInvite('${course.id}', '${esc(e)}'); return false;" title="Cancel invite">✕</a>` : ''}</span>`).join(' ')}</div>` : ''}
-                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse('${course.id}')">Leave this course 🚪</button>` : ''}
+                ${pending.length ? `<div class="pending">Waiting for: ${pending.map(e => `<span class="tag">${esc(e)}${isOwner ? ` <a href="#" onclick="AppController.revokeInvite(${Utils.js(course.id)}, ${Utils.js(e)}); return false;" title="Cancel invite">✕</a>` : ''}</span>`).join(' ')}</div>` : ''}
+                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse(${Utils.js(course.id)})">Leave this course 🚪</button>` : ''}
             </div>`;
 
         // History filter options
@@ -546,8 +579,8 @@ const UIModule = {
                 </select>
                 ${shared ? `<select id="fMember" onchange="AppController.applyFilters()">
                     <option value="">Everyone</option>
-                    ${memberIds.map(u => `<option value="${u}">${esc(nameOf(u))}</option>`).join('')}
-                    ${[...new Set(allMetrics.map(m => m.userId))].filter(u => !memberIds.includes(u)).map(u => `<option value="${u}">Former member</option>`).join('')}
+                    ${memberIds.map(u => `<option value="${esc(u)}">${esc(nameOf(u))}</option>`).join('')}
+                    ${[...new Set(allMetrics.map(m => m.userId))].filter(u => !memberIds.includes(u)).map(u => `<option value="${esc(u)}">Former member</option>`).join('')}
                 </select>` : ''}
                 <input type="date" id="fFrom" title="From" onchange="AppController.applyFilters()">
                 <input type="date" id="fTo" title="To" onchange="AppController.applyFilters()">
@@ -556,7 +589,7 @@ const UIModule = {
 
         const tab = UIModule.activeTab;
         const panel = (id) => `tab-panel ${tab === id ? 'active' : ''}`;
-        const tabBtn = (id, label) => `<button class="tab-btn ${tab === id ? 'active' : ''}" data-tab="${id}" onclick="UIModule.switchTab('${id}')">${label}</button>`;
+        const tabBtn = (id, label) => `<button class="tab-btn ${tab === id ? 'active' : ''}" data-tab="${id}" onclick="UIModule.switchTab(${Utils.js(id)})">${label}</button>`;
 
         document.getElementById('app-root').innerHTML = `
             <div class="main-container">
@@ -618,8 +651,8 @@ const UIModule = {
                                     <div>
                                         <p><strong>${todayMin}</strong> ${goal ? '/ ' + goal : ''} min today</p>
                                         <div class="goal-set">
-                                            <input type="number" id="goalMinutes" min="0" placeholder="Minutes/day" value="${goal || ''}">
-                                            <button class="btn btn-secondary btn-sm" onclick="AppController.saveGoal('${course.id}')">Set goal</button>
+                                            <input type="number" id="goalMinutes" min="0" placeholder="Minutes/day" value="${Number(goal) || ''}">
+                                            <button class="btn btn-secondary btn-sm" onclick="AppController.saveGoal(${Utils.js(course.id)})">Set goal</button>
                                         </div>
                                         ${goal && pct >= 100 ? '<p class="goal-done">Goal smashed! 🎉</p>' : ''}
                                     </div>
@@ -718,18 +751,18 @@ const UIModule = {
                             <div class="form-row">
                                 <div class="form-group">
                                     <label>Duration (minutes)</label>
-                                    <input type="number" id="metricDuration" placeholder="0" min="0">
+                                    <input type="number" id="metricDuration" placeholder="0" min="0" max="1440">
                                 </div>
                                 <div class="form-group">
                                     <label>Topic</label>
-                                    <input type="text" id="metricTopic" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
+                                    <input type="text" id="metricTopic" maxlength="200" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
                                 </div>
                             </div>
                             <div class="form-group full">
                                 <label>Notes</label>
-                                <textarea id="metricNotes" placeholder="Add any notes" rows="2"></textarea>
+                                <textarea id="metricNotes" maxlength="2000" placeholder="Add any notes" rows="2"></textarea>
                             </div>
-                            <button class="btn btn-primary" id="submitMetric" onclick="AppController.addMetric('${course.id}')">Log It! ✅</button>
+                            <button class="btn btn-primary" id="submitMetric" onclick="AppController.addMetric(${Utils.js(course.id)})">Log It! ✅</button>
                             <button class="btn btn-secondary" id="cancelEdit" style="display:none" onclick="AppController.cancelEdit()">Cancel</button>
                         </div>
 

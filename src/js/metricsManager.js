@@ -6,6 +6,9 @@
 const MetricsManager = {
     isAdding: false, // Prevent duplicate submissions
 
+    /** Whole minutes between 0 and 24h */
+    cleanDuration: (value) => Math.min(1440, Math.max(0, Math.floor(Number(value) || 0))),
+
     /**
      * Add learning metric entry
      * @param {Object} metricData - Metric details
@@ -25,23 +28,22 @@ const MetricsManager = {
             if (!metricData.courseId) {
                 throw new Error('Course is required');
             }
-            if (!metricData.date) {
-                throw new Error('Date is required');
+            if (!metricData.date || !/^\d{4}-\d{2}-\d{2}$/.test(metricData.date)) {
+                throw new Error('Please pick a valid date');
             }
             if (!metricData.status) {
                 throw new Error('Status is required');
             }
 
-            console.log('Adding metric with data:', metricData);
 
             const metric = {
                 userId: userId,
                 courseId: metricData.courseId,
                 date: metricData.date,
                 status: metricData.status, // 'Done' or 'Missed'
-                duration: metricData.duration || 0, // in minutes
-                topic: metricData.topic || '',
-                notes: metricData.notes || '',
+                duration: MetricsManager.cleanDuration(metricData.duration), // in minutes
+                topic: (metricData.topic || '').slice(0, 200),
+                notes: (metricData.notes || '').slice(0, 2000),
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
@@ -165,6 +167,10 @@ const MetricsManager = {
      */
     updateMetric: async (metricId, updates) => {
         try {
+            if ('duration' in updates) updates.duration = MetricsManager.cleanDuration(updates.duration);
+            if ('topic' in updates) updates.topic = String(updates.topic || '').slice(0, 200);
+            if ('notes' in updates) updates.notes = String(updates.notes || '').slice(0, 2000);
+            if ('date' in updates && !/^\d{4}-\d{2}-\d{2}$/.test(updates.date)) throw new Error('Please pick a valid date');
             updates.updatedAt = new Date();
             await db.collection('metrics').doc(metricId).update(updates);
             Utils.showSuccess(Fun.msg('edit'));

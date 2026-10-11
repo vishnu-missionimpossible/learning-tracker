@@ -89,6 +89,10 @@ const BuddyManager = {
     sendRequest: async (post, message) => {
         const me = AuthModule.getCurrentUser();
         const profile = ProfileManager.mine();
+        if (!AuthModule.isEmailVerified()) {
+            Utils.showError('Please verify your email first (see the banner on the courses page)');
+            return false;
+        }
         if (!profile || !profile.displayName) {
             Utils.showError('Set up your profile first so they know who you are');
             return false;

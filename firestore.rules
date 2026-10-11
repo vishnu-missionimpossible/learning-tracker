@@ -1,11 +1,38 @@
 rules_version = '2';
+
+// =====================================================================
+// Learning Tracker - Firestore security rules (hardened)
+//
+// Principles
+//  - Default deny: anything not matched below is blocked.
+//  - Users can only write documents as themselves (userId must equal auth uid).
+//  - Every document is shape-validated (allowed keys, types, lengths) so a
+//    malicious client cannot store oversized or unexpected data.
+//  - Invitations are matched by email, so the email MUST be verified.
+//  - Members can only change THEIR OWN reaction / vote / done-mark.
+// =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------------- helpers ----------------
     function signedIn() {
       return request.auth != null;
     }
-
+    function verified() {
+      return request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function str(v, max) {
+      return v is string && v.size() <= max;
+    }
+    function nonEmptyStr(v, max) {
+      return v is string && v.size() > 0 && v.size() <= max;
+    }
+    function isDateStr(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
     function courseOf(id) {
       return get(/databases/$(database)/documents/courses/$(id)).data;
     }
@@ -17,63 +44,127 @@ service cloud.firestore {
           || request.auth.uid in courseOf(id).memberIds;
     }
 
-    // Each user can read/write only their own profile (daily goals live here)
+    // ---------------- users (private) ----------------
     match /users/{userId} {
-      allow read, write: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create, update: if signedIn() && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly(['email', 'createdAt', 'updatedAt', 'goals', 'checklists']);
+      allow delete: if false;
     }
 
-    // Public display name + avatar (no email stored here)
+    // ---------------- profiles (public name + avatar, no email) ----------------
     match /profiles/{userId} {
       allow read: if signedIn();
-      allow create, update: if signedIn()
-                    && request.auth.uid == userId
-                    && request.resource.data.displayName is string
-                    && request.resource.data.displayName.size() > 0
-                    && request.resource.data.displayName.size() <= 30;
+      allow create, update: if signedIn() && request.auth.uid == userId
+                    && request.resource.data.keys().hasOnly(['displayName', 'avatar', 'updatedAt'])
+                    && nonEmptyStr(request.resource.data.displayName, 30)
+                    && str(request.resource.data.get('avatar', ''), 16);
       allow delete: if signedIn() && request.auth.uid == userId;
     }
 
+    // ---------------- courses ----------------
     match /courses/{courseId} {
 
-      allow create: if signedIn()
-                    && request.resource.data.userId == request.auth.uid;
+      function validChallenge(c) {
+        return c == null || (c is map
+                && c.keys().hasOnly(['title', 'target', 'startDate', 'endDate'])
+                && str(c.title, 80)
+                && c.target is int && c.target >= 1 && c.target <= 365
+                && isDateStr(c.startDate) && isDateStr(c.endDate));
+      }
+      function validCourse(d) {
+        return d.keys().hasOnly(['userId', 'courseName', 'startDate', 'endDate', 'description', 'createdAt',
+                                 'updatedAt', 'isActive', 'memberIds', 'memberEmails', 'invitedEmails', 'challenge'])
+            && nonEmptyStr(d.courseName, 100)
+            && str(d.description, 500)
+            && isDateStr(d.startDate)
+            && (d.endDate == null || isDateStr(d.endDate))
+            && d.isActive is bool
+            && d.get('memberIds', []).size() <= 20
+            && d.get('invitedEmails', []).size() <= 20
+            && validChallenge(d.get('challenge', null));
+      }
 
-      // Owner, members and invited friends can read the course
+      allow create: if signedIn()
+                    && validCourse(request.resource.data)
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.memberIds == [request.auth.uid]
+                    && request.resource.data.invitedEmails.size() == 0
+                    && request.resource.data.memberEmails.size() == 1
+                    && request.resource.data.memberEmails[request.auth.uid] == myEmail();
+
+      // Owner, members, and (verified) invited friends can read a course
       allow read: if signedIn() && (
                     resource.data.userId == request.auth.uid
                     || request.auth.uid in resource.data.memberIds
-                    || request.auth.token.email.lower() in resource.data.invitedEmails
+                    || (verified() && myEmail() in resource.data.invitedEmails)
                   );
 
       allow update: if signedIn() && (
-                    // owner: full control (invite, rename, soft-delete...)
-                    resource.data.userId == request.auth.uid
 
-                    // invited friend: accept the invite (adds only themselves)
-                    || (request.auth.token.email.lower() in resource.data.invitedEmails
+                    // OWNER: edit the course, invite friends, remove members.
+                    // Cannot transfer ownership or add anyone except themselves to memberIds.
+                    (resource.data.userId == request.auth.uid
+                      && validCourse(request.resource.data)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.get('memberIds', []).toSet()
+                           .difference(resource.data.get('memberIds', []).toSet())
+                           .hasOnly([request.auth.uid]))
+
+                    // INVITED FRIEND: accept (adds only themselves, with their own verified email)
+                    || (verified()
+                        && myEmail() in resource.data.invitedEmails
+                        && !(request.auth.uid in resource.data.memberIds)
                         && request.resource.data.diff(resource.data).affectedKeys()
                              .hasOnly(['memberIds', 'memberEmails', 'invitedEmails', 'updatedAt'])
+                        && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+                        && request.resource.data.memberIds.size() <= 20
                         && request.auth.uid in request.resource.data.memberIds
-                        && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1)
+                        && resource.data.memberIds.toSet().difference(request.resource.data.memberIds.toSet()).size() == 0
+                        && request.resource.data.memberEmails[request.auth.uid] == myEmail()
+                        && request.resource.data.memberEmails.diff(resource.data.memberEmails)
+                             .affectedKeys().hasOnly([request.auth.uid])
+                        && request.resource.data.invitedEmails.toSet()
+                             .difference(resource.data.invitedEmails.toSet()).size() == 0)
 
-                    // member: leave the course (removes only themselves; the owner cannot leave)
+                    // INVITED FRIEND: decline (can only remove invitations)
+                    || (verified()
+                        && myEmail() in resource.data.invitedEmails
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['invitedEmails', 'updatedAt'])
+                        && request.resource.data.invitedEmails.toSet()
+                             .difference(resource.data.invitedEmails.toSet()).size() == 0)
+
+                    // MEMBER: leave (removes only themselves; the owner cannot leave)
                     || (request.auth.uid in resource.data.memberIds
                         && request.auth.uid != resource.data.userId
                         && request.resource.data.diff(resource.data).affectedKeys()
                              .hasOnly(['memberIds', 'memberEmails', 'updatedAt'])
                         && !(request.auth.uid in request.resource.data.memberIds)
-                        && request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1)
-
-                    // invited friend: decline the invite (only removes their own email)
-                    || (request.auth.token.email.lower() in resource.data.invitedEmails
-                        && request.resource.data.diff(resource.data).affectedKeys()
-                             .hasOnly(['invitedEmails', 'updatedAt']))
+                        && request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1
+                        && request.resource.data.memberIds.toSet()
+                             .difference(resource.data.memberIds.toSet()).size() == 0
+                        && request.resource.data.memberEmails.diff(resource.data.memberEmails)
+                             .affectedKeys().hasOnly([request.auth.uid]))
                   );
 
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
+    // ---------------- metrics (log entries) ----------------
     match /metrics/{metricId} {
+
+      function validMetric(d) {
+        return d.keys().hasOnly(['userId', 'courseId', 'date', 'status', 'duration', 'topic', 'notes',
+                                 'createdAt', 'updatedAt', 'reactions'])
+            && d.userId is string
+            && d.courseId is string
+            && isDateStr(d.date)
+            && d.status in ['Done', 'Missed']
+            && d.duration is number && d.duration >= 0 && d.duration <= 1440
+            && str(d.topic, 200)
+            && str(d.notes, 2000);
+      }
 
       // Everyone in the course can see everyone's entries (needed for the leaderboard)
       allow read: if signedIn() && (
@@ -81,15 +172,21 @@ service cloud.firestore {
                     || isCourseMember(resource.data.courseId)
                   );
 
-      // You can only add entries as yourself, to a course you belong to
+      // Only as yourself, only into a course you belong to
       allow create: if signedIn()
+                    && validMetric(request.resource.data)
+                    && !('reactions' in request.resource.data)
                     && request.resource.data.userId == request.auth.uid
                     && isCourseMember(request.resource.data.courseId);
 
-      // The author can edit an entry; any other course member may only set or remove
-      // THEIR OWN emoji reaction on it
       allow update: if signedIn() && (
-                    resource.data.userId == request.auth.uid
+                    // author edits their entry (cannot change owner/course or forge reactions)
+                    (resource.data.userId == request.auth.uid
+                      && validMetric(request.resource.data)
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.courseId == resource.data.courseId
+                      && request.resource.data.get('reactions', {}) == resource.data.get('reactions', {}))
+                    // any other member: only set/remove THEIR OWN emoji reaction
                     || (isCourseMember(resource.data.courseId)
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
                         && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
@@ -98,30 +195,45 @@ service cloud.firestore {
                             || request.resource.data.reactions[request.auth.uid] in ['👏', '🔥', '💪', '🎉', '😂']))
                   );
 
-      // Only the author can delete an entry
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // ---------------------------------------------------------------
-    // Resource library: shared per course
-    // ---------------------------------------------------------------
+    // ---------------- resource library (shared per course) ----------------
     match /resources/{resId} {
+
+      function validResource(d) {
+        return d.keys().hasOnly(['courseId', 'userId', 'url', 'title', 'description', 'type', 'tags',
+                                 'pinned', 'likes', 'doneBy', 'createdAt', 'updatedAt'])
+            && d.url is string && d.url.size() <= 1500 && d.url.matches('^https?://.+')
+            && nonEmptyStr(d.title, 150)
+            && str(d.description, 400)
+            && d.type in ['video', 'article', 'course', 'doc', 'book', 'code', 'tool', 'link']
+            && d.tags is list && d.tags.size() <= 6
+            && d.pinned is bool
+            && d.likes is map && d.doneBy is map;
+      }
+
       allow read: if signedIn() && isCourseMember(resource.data.courseId);
 
       allow create: if signedIn()
+                    && validResource(request.resource.data)
                     && request.resource.data.userId == request.auth.uid
                     && isCourseMember(request.resource.data.courseId)
-                    && request.resource.data.title is string
-                    && request.resource.data.title.size() <= 150
-                    && request.resource.data.url is string
-                    && request.resource.data.url.size() <= 1500;
+                    && request.resource.data.pinned == false
+                    && request.resource.data.likes.size() == 0
+                    && request.resource.data.doneBy.size() == 0;
 
       allow update: if signedIn() && (
-                    // adder or course owner: edit / pin (cannot move it to another course)
+                    // adder or course owner: edit / pin. Cannot forge votes or move it elsewhere.
                     ((resource.data.userId == request.auth.uid || isCourseOwner(resource.data.courseId))
+                      && validResource(request.resource.data)
                       && request.resource.data.courseId == resource.data.courseId
-                      && request.resource.data.userId == resource.data.userId)
-                    // any member: only toggle THEIR OWN "helpful" vote / "done" mark
+                      && request.resource.data.userId == resource.data.userId
+                      && request.resource.data.likes == resource.data.likes
+                      && request.resource.data.doneBy == resource.data.doneBy
+                      && (request.resource.data.pinned == resource.data.pinned
+                          || isCourseOwner(resource.data.courseId)))
+                    // any member: only toggle THEIR OWN helpful vote / done mark
                     || (isCourseMember(resource.data.courseId)
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'doneBy'])
                         && request.resource.data.likes.diff(resource.data.likes).affectedKeys().hasOnly([request.auth.uid])
@@ -132,64 +244,125 @@ service cloud.firestore {
                                       || isCourseOwner(resource.data.courseId));
     }
 
-    // ---------------------------------------------------------------
-    // Comments & group chat: shared per course
-    // ---------------------------------------------------------------
+    // ---------------- comments & group chat ----------------
     match /comments/{commentId} {
       allow read: if signedIn() && isCourseMember(resource.data.courseId);
 
       allow create: if signedIn()
+                    && request.resource.data.keys().hasOnly(['courseId', 'targetType', 'targetId', 'userId', 'text', 'createdAt'])
                     && request.resource.data.userId == request.auth.uid
                     && isCourseMember(request.resource.data.courseId)
-                    && request.resource.data.text is string
-                    && request.resource.data.text.size() > 0
-                    && request.resource.data.text.size() <= 500;
+                    && request.resource.data.targetType in ['course', 'entry', 'resource']
+                    && nonEmptyStr(request.resource.data.targetId, 128)
+                    && nonEmptyStr(request.resource.data.text, 500);
 
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid
                                       || isCourseOwner(resource.data.courseId));
     }
 
-    // ---------------------------------------------------------------
-    // Flashcards & weekly reflections: private to each user
-    // ---------------------------------------------------------------
+    // ---------------- flashcards (private) ----------------
     match /flashcards/{cardId} {
-      allow read, update, delete: if signedIn() && resource.data.userId == request.auth.uid;
-      allow create: if signedIn()
-                    && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.front.size() <= 300
-                    && request.resource.data.back.size() <= 1000;
-    }
 
-    match /reflections/{reflectionId} {
+      function validCard(d) {
+        return d.keys().hasOnly(['userId', 'courseId', 'front', 'back', 'box', 'due', 'reps', 'lapses',
+                                 'createdAt', 'lastReviewed'])
+            && d.courseId is string
+            && nonEmptyStr(d.front, 300)
+            && nonEmptyStr(d.back, 1000)
+            && d.box is int && d.box >= 0 && d.box <= 5
+            && isDateStr(d.due)
+            && d.reps is int && d.reps >= 0
+            && d.lapses is int && d.lapses >= 0;
+      }
+
       allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
-      allow create, update: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && validCard(request.resource.data)
+                    && request.resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+                    && validCard(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.courseId == resource.data.courseId;
     }
 
-    // ---------------------------------------------------------------
-    // Study buddies
-    // ---------------------------------------------------------------
-    match /buddyPosts/{postId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+    // ---------------- weekly reflections (private; id = uid_courseId_weekStart) ----------------
+    match /reflections/{reflectionId} {
+
+      function validReflection(d) {
+        return d.keys().hasOnly(['userId', 'courseId', 'weekStart', 'mood', 'answers', 'createdAt', 'updatedAt'])
+            && d.courseId is string
+            && isDateStr(d.weekStart)
+            && d.mood is int && d.mood >= 0 && d.mood <= 5
+            && d.answers is map
+            && d.answers.keys().hasOnly(['win', 'hard', 'next', 'fun'])
+            && str(d.answers.get('win', ''), 600)
+            && str(d.answers.get('hard', ''), 600)
+            && str(d.answers.get('next', ''), 600)
+            && str(d.answers.get('fun', ''), 600);
+      }
+
+      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && validReflection(request.resource.data)
                     && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.topic.size() > 0
-                    && request.resource.data.topic.size() <= 60;
-      allow update, delete: if signedIn() && resource.data.userId == request.auth.uid;
+                    && reflectionId.matches(request.auth.uid + '_.*');
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+                    && validReflection(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
     }
 
-    // One request per person per post (document id = postId_requesterUid)
+    // ---------------- study buddies ----------------
+    match /buddyPosts/{postId} {
+
+      function validPost(d) {
+        return d.keys().hasOnly(['userId', 'displayName', 'avatar', 'topic', 'level', 'goal',
+                                 'availability', 'timezone', 'open', 'createdAt'])
+            && nonEmptyStr(d.displayName, 30)
+            && str(d.avatar, 16)
+            && nonEmptyStr(d.topic, 60)
+            && d.level in ['beginner', 'intermediate', 'advanced']
+            && str(d.goal, 200)
+            && str(d.availability, 80)
+            && str(d.timezone, 40)
+            && d.open is bool;
+      }
+
+      allow read: if signedIn();
+      allow create: if signedIn() && verified()
+                    && validPost(request.resource.data)
+                    && request.resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+                    && validPost(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // One request per person per post: document id = postId_requesterUid.
+    // The requester's email is stored only because they chose to send the request,
+    // and it must match their verified account email (cannot be spoofed).
     match /buddyRequests/{requestId} {
+
       allow read: if signedIn() && (resource.data.fromUid == request.auth.uid
                                     || resource.data.toUid == request.auth.uid);
 
-      allow create: if signedIn()
+      allow create: if signedIn() && verified()
+                    && request.resource.data.keys().hasOnly(['postId', 'topic', 'toUid', 'fromUid', 'fromName',
+                                                             'fromAvatar', 'fromEmail', 'message', 'status', 'createdAt'])
                     && request.resource.data.fromUid == request.auth.uid
                     && request.resource.data.toUid != request.auth.uid
                     && requestId == request.resource.data.postId + '_' + request.auth.uid
                     && request.resource.data.status == 'pending'
-                    && request.resource.data.message.size() <= 300;
+                    && request.resource.data.fromEmail == myEmail()
+                    && nonEmptyStr(request.resource.data.fromName, 30)
+                    && str(request.resource.data.fromAvatar, 16)
+                    && str(request.resource.data.topic, 60)
+                    && str(request.resource.data.message, 300)
+                    // the post must exist, be open, and belong to the person being asked
+                    && exists(/databases/$(database)/documents/buddyPosts/$(request.resource.data.postId))
+                    && get(/databases/$(database)/documents/buddyPosts/$(request.resource.data.postId)).data.userId == request.resource.data.toUid
+                    && get(/databases/$(database)/documents/buddyPosts/$(request.resource.data.postId)).data.open == true
+                    // the shown name must be the requester's real profile name (no impersonation)
+                    && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName == request.resource.data.fromName;
 
-      // the post owner answers the request; nothing else may change
+      // only the post owner answers; nothing else may change
       allow update: if signedIn()
                     && resource.data.toUid == request.auth.uid
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])

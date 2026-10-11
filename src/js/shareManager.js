@@ -49,6 +49,8 @@ const ShareManager = {
     /** Courses I have been invited to but not yet joined */
     getInvitations: async () => {
         try {
+            // Invitations are matched by email, so the email must be verified (enforced by security rules too)
+            if (!AuthModule.isEmailVerified()) return [];
             const email = (AuthModule.getCurrentUser().email || '').toLowerCase();
             const snap = await db.collection('courses').where('invitedEmails', 'array-contains', email).get();
             return snap.docs

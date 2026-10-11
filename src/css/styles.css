@@ -1060,3 +1060,8 @@ body.dark .res-card, body.dark .buddy-post, body.dark .comment { color: var(--te
     .res-grid { grid-template-columns: 1fr; }
     .fc-text { font-size: 1.15em; }
 }
+
+/* ==================== SECURITY UI ==================== */
+.pw-hint { display: block; margin-top: 6px; min-height: 1.2em; }
+.pw-hint.good { color: var(--success); }
+.pw-hint.bad { color: var(--danger); }

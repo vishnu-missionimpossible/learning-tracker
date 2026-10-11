@@ -16,7 +16,7 @@ const ViewsModule = {
     // =====================================================================
     // Comment threads (real-time)
     // =====================================================================
-    threadId: (type, id) => 'ti_' + type + '_' + id,
+    threadId: (type, id) => 'ti_' + Utils.domId(type) + '_' + Utils.domId(id),
 
     threadHtml: (type, targetId, big) => {
         const me = AuthModule.getCurrentUser();
@@ -32,14 +32,14 @@ const ViewsModule = {
                             <div class="c-head">
                                 <strong>${esc(ViewsModule.nameOf(c.userId))}</strong>
                                 <small>${Utils.timeAgo(c.createdAt)}</small>
-                                ${(c.userId === me.uid || isOwner) ? `<button class="icon-btn" title="Delete" onclick="AppController.deleteComment('${c.id}')">🗑</button>` : ''}
+                                ${(c.userId === me.uid || isOwner) ? `<button class="icon-btn" title="Delete" onclick="AppController.deleteComment(${Utils.js(c.id)})">🗑</button>` : ''}
                             </div>
                             <div class="c-text">${esc(c.text)}</div>
                         </div>`).join('') : '<p class="muted">No messages yet. Be the first to say something nice 💬</p>'}
                 </div>
                 <div class="share-row">
-                    <input type="text" class="thread-input" id="${ViewsModule.threadId(type, targetId)}" maxlength="500" placeholder="Write a message..." onkeydown="if(event.key==='Enter'){AppController.sendComment('${type}','${targetId}')}">
-                    <button class="btn btn-primary btn-sm" onclick="AppController.sendComment('${type}','${targetId}')">Send</button>
+                    <input type="text" class="thread-input" id="${ViewsModule.threadId(type, targetId)}" maxlength="500" placeholder="Write a message..." onkeydown="if(event.key==='Enter'){AppController.sendComment(${Utils.js(type)},${Utils.js(targetId)})}">
+                    <button class="btn btn-primary btn-sm" onclick="AppController.sendComment(${Utils.js(type)},${Utils.js(targetId)})">Send</button>
                 </div>
             </div>`;
     },
@@ -85,7 +85,7 @@ const ViewsModule = {
                             <label>Type</label>
                             <select id="resType">
                                 <option value="">Auto-detect</option>
-                                ${Object.entries(ResourceManager.types).map(([k, t]) => `<option value="${k}" ${editing && editing.type === k ? 'selected' : ''}>${t.emoji} ${t.label}</option>`).join('')}
+                                ${Object.entries(ResourceManager.types).map(([k, t]) => `<option value="${esc(k)}" ${editing && editing.type === k ? 'selected' : ''}>${t.emoji} ${t.label}</option>`).join('')}
                             </select>
                         </div>
                         <div class="form-group">
@@ -97,7 +97,7 @@ const ViewsModule = {
                         <label>Why is it useful?</label>
                         <textarea id="resDesc" rows="2" maxlength="400" placeholder="One line to help friends decide if it's worth their time">${esc(editing ? editing.description : '')}</textarea>
                     </div>
-                    <button class="btn btn-primary" onclick="AppController.saveResource('${course.id}')">${editing ? 'Save Changes 💾' : 'Share Resource 📤'}</button>
+                    <button class="btn btn-primary" onclick="AppController.saveResource(${Utils.js(course.id)})">${editing ? 'Save Changes 💾' : 'Share Resource 📤'}</button>
                     ${editing ? '<button class="btn btn-secondary" onclick="AppController.cancelResourceEdit()">Cancel</button>' : ''}
                 </details>
             </div>
@@ -181,18 +181,18 @@ const ViewsModule = {
                     </div>
                     <a class="res-title" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
                     ${r.description ? `<p class="res-desc">${esc(r.description)}</p>` : ''}
-                    ${(r.tags || []).length ? `<div class="res-tags">${r.tags.map(t => `<button class="tag tag-btn" onclick="AppController.filterByTag('${esc(t)}')">#${esc(t)}</button>`).join('')}</div>` : ''}
+                    ${(r.tags || []).length ? `<div class="res-tags">${r.tags.map(t => `<button class="tag tag-btn" onclick="AppController.filterByTag(${Utils.js(t)})">#${esc(t)}</button>`).join('')}</div>` : ''}
                     <div class="res-by">${esc(ViewsModule.nameOf(r.userId))} &middot; ${Utils.timeAgo(r.createdAt)}${shared ? ` &middot; ✅ ${doneCount}/${memberSet.size} finished` : ''}</div>
                     <div class="res-actions">
-                        <button class="chip-btn ${liked ? 'on' : ''}" title="Helpful" onclick="AppController.toggleResLike('${r.id}')">👍 ${likes(r) || ''}</button>
-                        <button class="chip-btn ${done ? 'on' : ''}" onclick="AppController.toggleResDone('${r.id}')">${done ? '✅ Done' : '☐ Mark done'}</button>
-                        ${shared ? `<button class="chip-btn ${open ? 'on' : ''}" onclick="AppController.toggleThread('resource','${r.id}')">💬 ${ChatManager.count('resource', r.id) || ''}</button>` : ''}
-                        <button class="chip-btn" title="Add to my checklist" onclick="AppController.resToChecklist('${r.id}')">➕ Checklist</button>
-                        <button class="chip-btn" title="Log a study session" onclick="AppController.resToLog('${r.id}')">📝 Log</button>
-                        <button class="chip-btn" title="Copy link" onclick="AppController.copyResLink('${r.id}')">📋</button>
-                        ${isOwner ? `<button class="chip-btn ${r.pinned ? 'on' : ''}" title="${r.pinned ? 'Unpin' : 'Pin to top'}" onclick="AppController.togglePin('${r.id}')">📌</button>` : ''}
-                        ${canEdit ? `<button class="chip-btn" title="Edit" onclick="AppController.editResource('${r.id}')">✏️</button>
-                        <button class="chip-btn" title="Delete" onclick="AppController.deleteResource('${r.id}')">🗑</button>` : ''}
+                        <button class="chip-btn ${liked ? 'on' : ''}" title="Helpful" onclick="AppController.toggleResLike(${Utils.js(r.id)})">👍 ${likes(r) || ''}</button>
+                        <button class="chip-btn ${done ? 'on' : ''}" onclick="AppController.toggleResDone(${Utils.js(r.id)})">${done ? '✅ Done' : '☐ Mark done'}</button>
+                        ${shared ? `<button class="chip-btn ${open ? 'on' : ''}" onclick="AppController.toggleThread('resource',${Utils.js(r.id)})">💬 ${ChatManager.count('resource', r.id) || ''}</button>` : ''}
+                        <button class="chip-btn" title="Add to my checklist" onclick="AppController.resToChecklist(${Utils.js(r.id)})">➕ Checklist</button>
+                        <button class="chip-btn" title="Log a study session" onclick="AppController.resToLog(${Utils.js(r.id)})">📝 Log</button>
+                        <button class="chip-btn" title="Copy link" onclick="AppController.copyResLink(${Utils.js(r.id)})">📋</button>
+                        ${isOwner ? `<button class="chip-btn ${r.pinned ? 'on' : ''}" title="${r.pinned ? 'Unpin' : 'Pin to top'}" onclick="AppController.togglePin(${Utils.js(r.id)})">📌</button>` : ''}
+                        ${canEdit ? `<button class="chip-btn" title="Edit" onclick="AppController.editResource(${Utils.js(r.id)})">✏️</button>
+                        <button class="chip-btn" title="Delete" onclick="AppController.deleteResource(${Utils.js(r.id)})">🗑</button>` : ''}
                     </div>
                     ${open ? ViewsModule.threadHtml('resource', r.id) : ''}
                 </div>
@@ -229,11 +229,11 @@ const ViewsModule = {
                     <div class="form-group"><label>Front (question)</label><textarea id="fcFront" rows="2" maxlength="300" placeholder="What does a for loop do?"></textarea></div>
                     <div class="form-group"><label>Back (answer)</label><textarea id="fcBack" rows="2" maxlength="1000" placeholder="Repeats a block for each item"></textarea></div>
                 </div>
-                <button class="btn btn-primary" onclick="AppController.addCard('${course.id}')">Add Card</button>
+                <button class="btn btn-primary" onclick="AppController.addCard(${Utils.js(course.id)})">Add Card</button>
                 <details class="res-form" style="margin-top:14px">
                     <summary>📥 Bulk add (one per line: question :: answer)</summary>
                     <textarea id="fcBulk" rows="5" placeholder="What is a variable? :: A named place to store data&#10;What is a list? :: An ordered collection"></textarea>
-                    <button class="btn btn-secondary" style="margin-top:8px" onclick="AppController.bulkAddCards('${course.id}')">Add All</button>
+                    <button class="btn btn-secondary" style="margin-top:8px" onclick="AppController.bulkAddCards(${Utils.js(course.id)})">Add All</button>
                 </details>
             </div>
 
@@ -248,9 +248,9 @@ const ViewsModule = {
                             <tr>
                                 <td>${esc(c.front)}</td>
                                 <td>${esc(c.back)}</td>
-                                <td>${'●'.repeat(c.box || 0) || '○'}</td>
+                                <td>${'●'.repeat(Math.min(5, Math.max(0, Number(c.box) || 0))) || '○'}</td>
                                 <td>${FlashcardManager.isDue(c) ? '<strong>Due</strong>' : Utils.formatDate(c.due)}</td>
-                                <td><button class="icon-btn" title="Delete" onclick="AppController.deleteCard('${c.id}')">🗑</button></td>
+                                <td><button class="icon-btn" title="Delete" onclick="AppController.deleteCard(${Utils.js(c.id)})">🗑</button></td>
                             </tr>`).join('')}
                     </tbody>
                 </table>
@@ -270,7 +270,7 @@ const ViewsModule = {
         const left = fc.queue.length;
         const rate = (r, label, key) => {
             const n = FlashcardManager.schedule(card, r);
-            return `<button class="btn fc-${r}" onclick="AppController.rateCard('${r}')">${label}<small>${FlashcardManager.label(n.days)} &middot; ${key}</small></button>`;
+            return `<button class="btn fc-${r}" onclick="AppController.rateCard(${Utils.js(r)})">${label}<small>${FlashcardManager.label(n.days)} &middot; ${key}</small></button>`;
         };
         return `
             <div class="fc-card ${fc.showBack ? 'flipped' : ''}" onclick="AppController.flipCard()">
@@ -316,7 +316,7 @@ const ViewsModule = {
                     <label>✨ Bonus: ${JournalManager.funPromptFor(week)}</label>
                     <textarea id="j_fun" rows="2" maxlength="600">${esc(a.fun || '')}</textarea>
                 </div>
-                <button class="btn btn-primary" onclick="AppController.saveReflection('${course.id}', '${week}')">${existing ? 'Update Reflection 💾' : 'Save Reflection 📝'}</button>
+                <button class="btn btn-primary" onclick="AppController.saveReflection(${Utils.js(course.id)}, ${Utils.js(week)})">${existing ? 'Update Reflection 💾' : 'Save Reflection 📝'}</button>
             </div>
 
             <div class="form-section">
@@ -379,13 +379,13 @@ const ViewsModule = {
                                     <small class="muted">${statusChip(r.status)} &middot; ${Utils.timeAgo(r.createdAt)}</small></div>
                                 <div class="buddy-actions">
                                     ${r.status === 'pending' ? `
-                                        <button class="btn btn-primary btn-sm" onclick="AppController.buddyRespond('${r.id}', 'accepted')">Accept ✅</button>
-                                        <button class="btn btn-secondary btn-sm" onclick="AppController.buddyRespond('${r.id}', 'declined')">Decline</button>` : ''}
+                                        <button class="btn btn-primary btn-sm" onclick="AppController.buddyRespond(${Utils.js(r.id)}, 'accepted')">Accept ✅</button>
+                                        <button class="btn btn-secondary btn-sm" onclick="AppController.buddyRespond(${Utils.js(r.id)}, 'declined')">Decline</button>` : ''}
                                     ${r.status === 'accepted' ? `
-                                        <button class="btn btn-primary btn-sm" onclick="AppController.buddyCreateCourse('${r.id}')">Create shared course &amp; invite 🚀</button>
-                                        ${owned.length ? `<select id="bs_${r.id}" class="inline-select">${owned.map(c => `<option value="${c.id}">${esc(c.courseName)}</option>`).join('')}</select>
-                                        <button class="btn btn-secondary btn-sm" onclick="AppController.buddyInviteExisting('${r.id}')">Invite to this course</button>` : ''}` : ''}
-                                    <button class="icon-btn" title="Delete" onclick="AppController.buddyDeleteRequest('${r.id}')">🗑</button>
+                                        <button class="btn btn-primary btn-sm" onclick="AppController.buddyCreateCourse(${Utils.js(r.id)})">Create shared course &amp; invite 🚀</button>
+                                        ${owned.length ? `<select id="bs_${Utils.domId(r.id)}" class="inline-select">${owned.map(c => `<option value="${c.id}">${esc(c.courseName)}</option>`).join('')}</select>
+                                        <button class="btn btn-secondary btn-sm" onclick="AppController.buddyInviteExisting(${Utils.js(r.id)})">Invite to this course</button>` : ''}` : ''}
+                                    <button class="icon-btn" title="Delete" onclick="AppController.buddyDeleteRequest(${Utils.js(r.id)})">🗑</button>
                                 </div>
                             </div>`).join('')}
                     </div>` : ''}
@@ -397,7 +397,7 @@ const ViewsModule = {
                             <div class="buddy-card">
                                 <div>For <strong>${esc(r.topic)}</strong> &middot; ${statusChip(r.status)}
                                     <small class="muted"> &middot; ${Utils.timeAgo(r.createdAt)}</small></div>
-                                <div class="buddy-actions"><button class="icon-btn" title="Cancel / remove" onclick="AppController.buddyDeleteRequest('${r.id}')">🗑</button></div>
+                                <div class="buddy-actions"><button class="icon-btn" title="Cancel / remove" onclick="AppController.buddyDeleteRequest(${Utils.js(r.id)})">🗑</button></div>
                             </div>`).join('')}
                     </div>` : ''}
 
@@ -414,7 +414,7 @@ const ViewsModule = {
                             <div class="form-group"><label>When are you free?</label><input type="text" id="bpAvail" maxlength="80" placeholder="e.g., Evenings, weekends"></div>
                         </div>
                         <button class="btn btn-primary" onclick="AppController.buddyPost()">Post 📣</button>
-                        ${mine.length ? `<div class="pending">Your open posts: ${mine.map(p => `<span class="tag">${esc(p.topic)} <a href="#" title="Close post" onclick="AppController.buddyClose('${p.id}'); return false;">✕</a></span>`).join(' ')}</div>` : ''}
+                        ${mine.length ? `<div class="pending">Your open posts: ${mine.map(p => `<span class="tag">${esc(p.topic)} <a href="#" title="Close post" onclick="AppController.buddyClose(${Utils.js(p.id)}); return false;">✕</a></span>`).join(' ')}</div>` : ''}
                     </div>
 
                     <div class="form-section">
@@ -440,9 +440,9 @@ const ViewsModule = {
                                     ${sent ? `<div class="tag">${statusChip(sent.status)}</div>` : `
                                     <details class="res-form">
                                         <summary>Say hi 👋</summary>
-                                        <textarea id="bm_${p.id}" rows="2" maxlength="300" placeholder="Hi! I'm learning this too - want to team up?"></textarea>
+                                        <textarea id="bm_${Utils.domId(p.id)}" rows="2" maxlength="300" placeholder="Hi! I'm learning this too - want to team up?"></textarea>
                                         <small class="muted">Sending shares your email with ${esc(p.displayName)}.</small><br>
-                                        <button class="btn btn-primary btn-sm" onclick="AppController.buddyRequest('${p.id}')">Send request</button>
+                                        <button class="btn btn-primary btn-sm" onclick="AppController.buddyRequest(${Utils.js(p.id)})">Send request</button>
                                     </details>`}
                                 </div>`;
                             }).join('') : '<p class="muted">No open posts match yet. Be the first - post what you want to learn above! 🌱</p>'}

@@ -17,7 +17,7 @@ const AppController = {
         // Initialize auth and listen for state changes
         AuthModule.init(async (user) => {
             if (user) {
-                console.log('✓ User authenticated:', user.email);
+                console.log('✓ User authenticated');
                 await SettingsModule.loadGoals();
                 SettingsModule.startReminderLoop();
                 AppController.showCourses();
@@ -34,11 +34,13 @@ const AppController = {
     signup: async () => {
         const email = document.getElementById('signupEmail').value;
         const password = document.getElementById('signupPassword').value;
+        const confirmPassword = document.getElementById('signupConfirm').value;
 
         try {
-            await AuthModule.signup(email, password);
+            await AuthModule.signup(email, password, confirmPassword);
             document.getElementById('signupEmail').value = '';
             document.getElementById('signupPassword').value = '';
+            document.getElementById('signupConfirm').value = '';
         } catch (error) {
             console.error('Signup error:', error);
         }
@@ -68,6 +70,14 @@ const AppController = {
         if (await AuthModule.resetPassword(email)) {
             UIModule.showLoginForm();
         }
+    },
+
+    resendVerification: () => AuthModule.resendVerification(),
+
+    refreshVerification: async () => {
+        const verified = await AuthModule.refreshVerification();
+        Utils.showSuccess(verified ? 'Email verified - thank you! ✅' : 'Not verified yet. Open the link in the email, then try again.');
+        AppController.showCourses();
     },
 
     /**

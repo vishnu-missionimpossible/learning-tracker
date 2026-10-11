@@ -59,8 +59,30 @@ const Utils = {
      * @returns {boolean} - Is valid password (min 6 chars)
      */
     isValidPassword: (password) => {
-        return password && password.length >= 6;
+        return !Utils.passwordIssue(password);
     },
+
+    /**
+     * Password policy: 8+ characters with at least one letter and one number
+     * @returns {string|null} - Problem description, or null when the password is fine
+     */
+    passwordIssue: (password) => {
+        if (!password || password.length < 8) return 'Password must be at least 8 characters';
+        if (password.length > 128) return 'Password is too long (max 128 characters)';
+        if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return 'Password must include at least one letter and one number';
+        if (/^(password|12345678|qwertyui|11111111)/i.test(password)) return 'That password is too common - pick something harder to guess';
+        return null;
+    },
+
+    /** Make any id safe to use inside an HTML id attribute / selector */
+    domId: (value) => String(value == null ? '' : value).replace(/[^A-Za-z0-9_-]/g, '_'),
+
+    /**
+     * Safe JavaScript string literal for use INSIDE a double-quoted HTML attribute
+     * (e.g. onclick="Fn(${Utils.js(id)})"). Never put raw data between quotes in a handler.
+     */
+    js: (value) => Utils.esc(JSON.stringify(String(value == null ? '' : value))),
+
 
     /**
      * Get ordinal suffix for numbers (1st, 2nd, 3rd, etc.)

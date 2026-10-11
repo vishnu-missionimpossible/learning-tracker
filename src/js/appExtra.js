@@ -343,7 +343,7 @@ Object.assign(AppController, {
     buddyRequest: async (postId) => {
         const post = BuddyManager.posts.find(p => p.id === postId);
         if (!post) return;
-        const msg = document.getElementById('bm_' + postId).value;
+        const msg = document.getElementById('bm_' + Utils.domId(postId)).value;
         if (await BuddyManager.sendRequest(post, msg)) {
             Utils.showSuccess('Request sent! Fingers crossed 🤞');
             AppController.buddyReload();
@@ -383,7 +383,7 @@ Object.assign(AppController, {
 
     buddyInviteExisting: async (reqId) => {
         const req = BuddyManager.incoming.find(r => r.id === reqId);
-        const select = document.getElementById('bs_' + reqId);
+        const select = document.getElementById('bs_' + Utils.domId(reqId));
         if (!req || !select) return;
         if (await ShareManager.invite(select.value, req.fromEmail)) {
             await BuddyManager.setStatus(reqId, 'invited');
