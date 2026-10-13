@@ -47,6 +47,13 @@ const MetricsManager = {
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
+            // Optional extra measurement (weight / reps / distance / count)
+            const goal = metricData.goal || {};
+            const value = Categories.cleanValue(metricData.value);
+            if (value > 0) {
+                metric.value = value;
+                metric.unit = Categories.cleanUnit(goal, metricData.unit);
+            }
 
             const docRef = await db.collection('metrics').add(metric);
             console.log('✓ Metric added with ID:', docRef.id);
@@ -59,9 +66,11 @@ const MetricsManager = {
             }
 
             // Wait a bit for the success message to show
-            setTimeout(() => {
-                AppController.openCourse(metricData.courseId);
-            }, 1000);
+            if (!metricData.stay) {
+                setTimeout(() => {
+                    AppController.openCourse(metricData.courseId);
+                }, 1000);
+            }
 
             return { id: docRef.id, ...metric };
         } catch (error) {
@@ -92,6 +101,20 @@ const MetricsManager = {
         } catch (error) {
             console.error('Error fetching metrics:', error);
             Utils.showError('Error loading metrics: ' + error.message);
+            return [];
+        }
+    },
+
+    /**
+     * Every entry I have written (all goals) - used by Home, Profile and the report card
+     */
+    getMine: async () => {
+        try {
+            const uid = AuthModule.getCurrentUser().uid;
+            const snap = await db.collection('metrics').where('userId', '==', uid).get();
+            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (error) {
+            console.warn('Could not load my entries:', error.message);
             return [];
         }
     },
@@ -170,6 +193,8 @@ const MetricsManager = {
             if ('duration' in updates) updates.duration = MetricsManager.cleanDuration(updates.duration);
             if ('topic' in updates) updates.topic = String(updates.topic || '').slice(0, 200);
             if ('notes' in updates) updates.notes = String(updates.notes || '').slice(0, 2000);
+            if ('value' in updates) updates.value = Categories.cleanValue(updates.value);
+            if ('unit' in updates) updates.unit = String(updates.unit || '').slice(0, 12);
             if ('date' in updates && !/^\d{4}-\d{2}-\d{2}$/.test(updates.date)) throw new Error('Please pick a valid date');
             updates.updatedAt = new Date();
             await db.collection('metrics').doc(metricId).update(updates);

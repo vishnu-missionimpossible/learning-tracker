@@ -25,7 +25,7 @@ const ProfileManager = {
 
     mine: () => ProfileManager.get(AuthModule.getCurrentUser().uid),
 
-    save: async (displayName, avatar) => {
+    save: async (displayName, avatar, bio) => {
         const name = (displayName || '').trim().slice(0, 30);
         if (!name) {
             Utils.showError('Please enter a display name');
@@ -33,7 +33,7 @@ const ProfileManager = {
         }
         const uid = AuthModule.getCurrentUser().uid;
         try {
-            const data = { displayName: name, avatar: avatar || '🦊', updatedAt: new Date() };
+            const data = { displayName: name, avatar: avatar || '🦊', bio: String(bio || '').trim().slice(0, 160), updatedAt: new Date() };
             await db.collection('profiles').doc(uid).set(data);
             ProfileManager.cache[uid] = data;
             Utils.showSuccess(Fun.msg('profile'));

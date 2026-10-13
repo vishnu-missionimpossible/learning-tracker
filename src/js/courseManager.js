@@ -23,7 +23,7 @@ const CourseManager = {
             const userId = AuthModule.getCurrentUser().uid;
 
             if (!courseData.courseName || !courseData.courseName.trim()) {
-                throw new Error('Course name is required');
+                throw new Error('Please give your goal a name');
             }
             if (!courseData.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(courseData.startDate)) {
                 throw new Error('Start date is required');
@@ -42,6 +42,7 @@ const CourseManager = {
                 startDate: courseData.startDate,
                 endDate: courseData.endDate || null,
                 description: (courseData.description || '').slice(0, 500),
+                category: Categories.key(courseData.category),
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 isActive: true,
@@ -165,7 +166,7 @@ const CourseManager = {
      */
     deleteCourse: async (courseId) => {
         try {
-            if (confirm('Are you sure you want to delete this course?')) {
+            if (confirm('Are you sure you want to delete this goal and its history?')) {
                 await db.collection('courses').doc(courseId).update({
                     isActive: false,
                     updatedAt: new Date()

@@ -129,6 +129,35 @@ const Utils = {
         }
     },
 
+    /**
+     * Tiny, SAFE markdown -> HTML (headings, bold, italic, code, lists, links, quotes).
+     * All input is HTML-escaped FIRST, so no user HTML can ever get through.
+     */
+    md: (text) => {
+        const lines = Utils.esc(String(text || '')).split('\n');
+        const inline = (t) => t
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        let out = '', list = null, code = false;
+        const closeList = () => { if (list) { out += '</' + list + '>'; list = null; } };
+        for (const raw of lines) {
+            if (/^```/.test(raw)) { closeList(); out += code ? '</pre>' : '<pre>'; code = !code; continue; }
+            if (code) { out += raw + '\n'; continue; }
+            let m;
+            if ((m = raw.match(/^(#{1,3})\s+(.*)$/))) { closeList(); out += '<h' + (m[1].length + 2) + '>' + inline(m[2]) + '</h' + (m[1].length + 2) + '>'; }
+            else if ((m = raw.match(/^\s*[-*]\s+(.*)$/))) { if (list !== 'ul') { closeList(); out += '<ul>'; list = 'ul'; } out += '<li>' + inline(m[1]) + '</li>'; }
+            else if ((m = raw.match(/^\s*\d+\.\s+(.*)$/))) { if (list !== 'ol') { closeList(); out += '<ol>'; list = 'ol'; } out += '<li>' + inline(m[1]) + '</li>'; }
+            else if ((m = raw.match(/^&gt;\s?(.*)$/))) { closeList(); out += '<blockquote>' + inline(m[1]) + '</blockquote>'; }
+            else if (!raw.trim()) { closeList(); }
+            else { closeList(); out += '<p>' + inline(raw) + '</p>'; }
+        }
+        closeList();
+        if (code) out += '</pre>';
+        return out;
+    },
+
     /** Human-friendly message for Firebase errors */
     explain: (error) => {
         if (error && error.code === 'permission-denied') {

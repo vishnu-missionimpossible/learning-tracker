@@ -128,26 +128,40 @@ const UIModule = {
     },
 
     /**
-     * Render course setup screen (create new course)
+     * Render goal setup screen (create a new goal of any category)
      */
-    renderCourseSetupScreen: () => {
+    setupCategory: 'learning',
+
+    renderCourseSetupScreen: (category) => {
+        const key = Categories.key(category || UIModule.setupCategory);
+        UIModule.setupCategory = key;
+        const cat = Categories.get(key);
+        const esc = Utils.esc;
         document.getElementById('app-root').innerHTML = `
             <div class="main-container">
                 <div class="header">
-                    <h1>🗺️ Start a New Adventure</h1>
-                    <button class="btn btn-secondary" onclick="AppController.showCourses()">← Back to Courses</button>
+                    <h1>✨ Start a New Goal</h1>
+                    <button class="btn btn-secondary" onclick="AppController.showHome()">← Back</button>
                 </div>
 
                 <div class="content">
                     <div class="form-section">
-                        <h2>What are we conquering? 🏔️</h2>
+                        <h2>What do you want to track?</h2>
+                        <div class="cat-chips" id="catChips">
+                            ${Categories.order.map(k => `<button type="button" class="cat-chip ${k === key ? 'active' : ''}" data-cat="${esc(k)}" onclick="UIModule.setSetupCategory(${Utils.js(k)})">${Categories.list[k].emoji} ${esc(Categories.list[k].name)}</button>`).join('')}
+                        </div>
+                        <p class="muted" id="setupBlurb">${esc(cat.blurb)}</p>
+                    </div>
+
+                    <div class="form-section">
+                        <h2 id="setupHeading">${esc(cat.heading)}</h2>
                         <div class="form-group">
-                            <label>Course Name *</label>
-                            <input type="text" id="courseName" maxlength="100" placeholder="e.g., Python (snakes not included) 🐍">
+                            <label>Name *</label>
+                            <input type="text" id="courseName" maxlength="100" placeholder="${esc(cat.namePh)}">
                         </div>
                         <div class="form-group">
                             <label>Description</label>
-                            <textarea id="courseDescription" maxlength="500" placeholder="Brief description of the course" rows="3"></textarea>
+                            <textarea id="courseDescription" maxlength="500" placeholder="${esc(cat.descPh)}" rows="3"></textarea>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
@@ -159,12 +173,28 @@ const UIModule = {
                                 <input type="text" id="endDate" class="datepicker" placeholder="Select date">
                             </div>
                         </div>
-                        <button class="btn btn-primary" onclick="AppController.createCourse()">Unlock Course 🔓</button>
+                        <button class="btn btn-primary" id="setupCta" onclick="AppController.createCourse()">${esc(cat.cta)}</button>
                     </div>
                 </div>
             </div>
         `;
         UIModule.initializeDatePickers();
+        const start = document.getElementById('startDate');
+        if (start && start._flatpickr) start._flatpickr.setDate(Analytics.today(), true);
+    },
+
+    /** Switch category on the setup screen without losing what was typed */
+    setSetupCategory: (key) => {
+        key = Categories.key(key);
+        UIModule.setupCategory = key;
+        const cat = Categories.get(key);
+        document.querySelectorAll('#catChips .cat-chip').forEach(b => b.classList.toggle('active', b.dataset.cat === key));
+        const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
+        set('setupBlurb', el => { el.textContent = cat.blurb; });
+        set('setupHeading', el => { el.textContent = cat.heading; });
+        set('setupCta', el => { el.textContent = cat.cta; });
+        set('courseName', el => { el.placeholder = cat.namePh; });
+        set('courseDescription', el => { el.placeholder = cat.descPh; });
     },
 
     /**
@@ -273,7 +303,7 @@ const UIModule = {
         const list = UIModule.filteredMetrics();
 
         if (!list.length) {
-            return `<tr><td colspan="8" style="text-align:center;color:#999;">No entries match your filters 🔍</td></tr>`;
+            return `<tr><td colspan="9" style="text-align:center;color:#999;">No entries match your filters 🔍</td></tr>`;
         }
         return list.map(metric => {
             const mine = metric.userId === me.uid;
@@ -296,17 +326,18 @@ const UIModule = {
                 <td><span class="badge badge-${esc((metric.status || '').toLowerCase())}">${esc(metric.status)}</span></td>
                 <td>${Number(metric.duration) || 0} min</td>
                 <td>${esc(metric.topic)}</td>
+                ${Categories.get(course).valueLabel ? `<td>${Number(metric.value) > 0 ? esc(metric.value) + ' ' + esc(metric.unit || '') : ''}</td>` : ''}
                 <td>${esc(metric.notes)}</td>
                 ${shared ? `<td>${cheers}</td>` : ''}
                 <td class="actions-cell">
                     ${shared ? `<button class="chip-btn ${UIModule.openThreads['entry:' + metric.id] ? 'on' : ''}" title="Comments" onclick="AppController.toggleThread('entry',${Utils.js(metric.id)})">💬 ${ChatManager.count('entry', metric.id) || ''}</button>` : ''}
                     ${mine ? `
-                        <button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard(${Utils.js(metric.id)})">🃏</button>
+                        ${Categories.hasTab(course, 'cards') ? `<button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard(${Utils.js(metric.id)})">🃏</button>` : ''}
                         <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric(${Utils.js(metric.id)})">Edit</button>
                         <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric(${Utils.js(metric.id)})">Delete</button>` : ''}
                 </td>
             </tr>
-            ${shared && UIModule.openThreads['entry:' + metric.id] ? `<tr class="thread-row"><td colspan="9">${ViewsModule.threadHtml('entry', metric.id)}</td></tr>` : ''}`;
+            ${shared && UIModule.openThreads['entry:' + metric.id] ? `<tr class="thread-row"><td colspan="10">${ViewsModule.threadHtml('entry', metric.id)}</td></tr>` : ''}`;
         }).join('');
     },
 
@@ -322,57 +353,32 @@ const UIModule = {
         if (count) count.textContent = UIModule.filteredMetrics().length + ' of ' + UIModule.allMetrics.length + ' entries';
     },
 
-    /** Profile modal */
-    showProfileModal: () => {
-        if (document.getElementById('profileModal')) return;
-        const p = ProfileManager.mine() || {};
-        const current = p.avatar || Fun.avatars[0];
-        const overlay = document.createElement('div');
-        overlay.id = 'profileModal';
-        overlay.className = 'modal-overlay';
-        overlay.innerHTML = `
-            <div class="modal-box">
-                <h2>👤 Your Profile</h2>
-                <p class="muted">Friends in shared courses see this instead of your email.</p>
-                <div class="form-group">
-                    <label>Display name</label>
-                    <input type="text" id="profileName" maxlength="30" placeholder="e.g., Vishnu" value="${Utils.esc(p.displayName || '')}">
-                </div>
-                <label>Pick an avatar</label>
-                <div class="avatar-grid" id="avatarGrid">
-                    ${Fun.avatars.map(a => `<button type="button" class="avatar-opt ${a === current ? 'selected' : ''}" data-avatar="${Utils.esc(a)}" onclick="UIModule.pickAvatar(${Utils.js(a)})">${a}</button>`).join('')}
-                </div>
-                <input type="hidden" id="profileAvatar" value="${Utils.esc(current)}">
-                <div class="modal-actions">
-                    <button class="btn btn-primary" onclick="AppController.saveProfile()">Save</button>
-                    <button class="btn btn-secondary" onclick="document.getElementById('profileModal').remove()">Cancel</button>
-                </div>
-            </div>`;
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-        document.body.appendChild(overlay);
-    },
+    /** Profile now lives on its own page */
+    showProfileModal: () => AppController.showProfile(),
 
     pickAvatar: (a) => {
         document.getElementById('profileAvatar').value = a;
+        const prev = document.getElementById('profilePreview');
+        if (prev) prev.textContent = a;
         document.querySelectorAll('.avatar-opt').forEach(b => b.classList.toggle('selected', b.dataset.avatar === a));
     },
 
+    goalFilter: 'all',
+
     /**
-     * Render courses list screen
-     * @param {Array} courses - Array of courses
-     * @param {Array} invitations - Courses I have been invited to
+     * Render "My Goals" list screen
+     * @param {Array} courses - Array of goals
+     * @param {Array} invitations - Goals I have been invited to
      */
     renderCoursesScreen: async (courses, invitations = []) => {
         const me = AuthModule.getCurrentUser();
         const esc = Utils.esc;
-        const profile = ProfileManager.mine();
-        const myName = profile && profile.displayName ? (profile.avatar || '🙂') + ' ' + profile.displayName : me.email;
 
         const invitesHtml = invitations.map(c => `
             <div class="invite-card">
                 <div>
                     <strong>👯 ${esc(c.memberEmails && c.memberEmails[c.userId] || 'A friend')}</strong>
-                    invited you to learn <strong>${esc(c.courseName)}</strong> together!
+                    invited you to <strong>${esc(c.courseName)}</strong> together!
                 </div>
                 <div class="invite-actions">
                     <button class="btn btn-primary btn-sm" onclick="AppController.acceptInvite(${Utils.js(c.id)})">Join the squad 🎉</button>
@@ -381,17 +387,24 @@ const UIModule = {
             </div>
         `).join('');
 
-        const coursesHtml = courses.map(course => {
+        const present = Categories.order.filter(k => courses.some(c => Categories.key(c) === k));
+        if (UIModule.goalFilter !== 'all' && !present.includes(UIModule.goalFilter)) UIModule.goalFilter = 'all';
+        const shown = UIModule.goalFilter === 'all' ? courses : courses.filter(c => Categories.key(c) === UIModule.goalFilter);
+        const chip = (id, label) => `<button class="cat-chip ${UIModule.goalFilter === id ? 'active' : ''}" onclick="AppController.setGoalFilter(${Utils.js(id)})">${label}</button>`;
+
+        const coursesHtml = shown.map(course => {
             const members = (course.memberIds || []).length;
             const isOwner = course.userId === me.uid;
+            const cat = Categories.get(course);
             return `
             <div class="course-card">
                 <div class="course-header">
-                    <h3>${esc(course.courseName)}</h3>
+                    <h3>${cat.emoji} ${esc(course.courseName)}</h3>
                     <span class="badge">🔥 ${Utils.calculateDaysElapsed(course.startDate)} days in</span>
                 </div>
                 <div class="tag-row">
-                    ${members > 1 ? `<span class="tag tag-shared">👯 ${members} learners</span>` : ''}
+                    <span class="tag">${esc(cat.name)}</span>
+                    ${members > 1 ? `<span class="tag tag-shared">👯 ${members} people</span>` : ''}
                     ${!isOwner ? '<span class="tag">Shared with you</span>' : ''}
                     ${course.challenge ? '<span class="tag tag-challenge">🏁 Challenge on</span>' : ''}
                 </div>
@@ -401,59 +414,42 @@ const UIModule = {
                     ${course.endDate ? `<small>Ends: ${Utils.formatDate(course.endDate)}</small>` : ''}
                 </div>
                 <div class="course-actions">
-                    <button class="btn btn-primary" onclick="AppController.openCourse(${Utils.js(course.id)})">Continue Quest ⚔️</button>
+                    <button class="btn btn-primary" onclick="AppController.openCourse(${Utils.js(course.id)})">Open ⚔️</button>
                     ${isOwner ? `<button class="btn btn-secondary" onclick="AppController.deleteCourse(${Utils.js(course.id)})">Delete</button>` : ''}
                 </div>
             </div>`;
         }).join('');
 
-        const reminder = SettingsModule.reminderTime();
-
         document.getElementById('app-root').innerHTML = `
             <div class="main-container">
                 <div class="header">
-                    <div>
-                        <h1>🎒 My Learning Adventures</h1>
-                        <span class="user-email">${Fun.pick(Fun.greetings)} &middot; ${esc(myName)}</span>
-                    </div>
+                    <div><h1>🎯 My Goals</h1>
+                        <span class="user-email">${courses.length} active goal${courses.length === 1 ? '' : 's'}</span></div>
                     <div class="header-actions">
-                        <button class="btn btn-primary" onclick="AppController.showCourseSetup()">+ New Adventure ✨</button>
-                        <button class="btn btn-secondary" onclick="AppController.showBuddies()">🤝 Study Buddies</button>
-                        <button class="btn btn-secondary" onclick="UIModule.showProfileModal()">👤 Profile</button>
+                        <button class="btn btn-primary" onclick="AppController.showCourseSetup()">+ New Goal ✨</button>
                         <button class="btn btn-secondary" id="installBtn" style="display:none" onclick="AppController.installApp()">📲 Install</button>
                         <button class="btn btn-secondary" onclick="AppController.logout()">Logout</button>
                     </div>
                 </div>
+                ${HomeModule.navHtml('goals')}
 
                 <div class="content">
-                    <div class="quote-banner">💡 ${esc(Fun.dailyQuote())}</div>
-
-                    ${!me.emailVerified ? `<div class="today-banner">📧 Please verify your email (<strong>${esc(me.email)}</strong>). Verification is needed to accept course invitations and use Study Buddies.
-                        <a href="#" onclick="AppController.resendVerification(); return false;">Resend email</a> &middot;
-                        <a href="#" onclick="AppController.refreshVerification(); return false;">I've verified - refresh</a></div>` : ''}
-
-                    ${!profile ? `<div class="today-banner">👋 Pick a display name and avatar so friends see more than your email. <a href="#" onclick="UIModule.showProfileModal(); return false;">Set up profile</a></div>` : ''}
-
+                    ${HomeModule.bannersHtml()}
                     ${invitations.length ? `<div class="invites"><h2>📬 You have invitations!</h2>${invitesHtml}</div>` : ''}
+
+                    ${present.length > 1 ? `<div class="cat-chips">${chip('all', 'All (' + courses.length + ')')}${present.map(k => chip(k, Categories.list[k].emoji + ' ' + esc(Categories.list[k].name))).join('')}</div>` : ''}
 
                     ${courses.length === 0 ? `
                         <div class="empty-state">
                             <div class="empty-emoji">🦉</div>
-                            <p>It's quiet in here... too quiet. Start your first course and let the learning begin!</p>
-                            <button class="btn btn-primary" onclick="AppController.showCourseSetup()">Create First Course 🚀</button>
+                            <p>It's quiet in here... Pick something you want to be consistent at - a course, the gym, a hobby, a daily habit - and let's go!</p>
+                            <button class="btn btn-primary" onclick="AppController.showHome()">Choose a goal type 🚀</button>
                         </div>
                     ` : `
                         <div class="courses-grid">
                             ${coursesHtml}
                         </div>
                     `}
-
-                    <div class="settings-strip">
-                        <label for="reminderTime">⏰ Daily reminder</label>
-                        <input type="time" id="reminderTime" value="${esc(reminder)}">
-                        <button class="btn btn-secondary btn-sm" onclick="AppController.saveReminder()">Save</button>
-                        <small>Reminds you while the app is open or installed. Clear the time to turn it off.</small>
-                    </div>
                 </div>
             </div>
         `;
@@ -473,6 +469,14 @@ const UIModule = {
         const shared = memberIds.length > 1;
         const nameOf = (uid) => UIModule.nameOf(course, uid);
         const myMetrics = allMetrics.filter(m => m.userId === me.uid);
+        const cat = Categories.get(course);
+        if (!cat.tabs.includes(UIModule.activeTab)) UIModule.activeTab = 'progress';
+
+        // Personal record of the extra measurement (weight / reps / distance...)
+        let pr = null;
+        myMetrics.filter(m => m.status === 'Done' && Number(m.value) > 0).forEach(m => {
+            if (!pr || Number(m.value) > pr.value) pr = { value: Number(m.value), unit: m.unit || '' };
+        });
 
         UIModule.allMetrics = allMetrics;
         UIModule.myMetrics = myMetrics;
@@ -547,7 +551,7 @@ const UIModule = {
         const pending = course.invitedEmails || [];
         const shareHtml = `
             <div class="form-section">
-                <h2>👯 Learn Together</h2>
+                <h2>👯 Better Together</h2>
                 ${shared ? `
                     <div class="member-list">
                         ${memberIds.map(uid => `
@@ -555,14 +559,14 @@ const UIModule = {
                                 <span>${esc(nameOf(uid))}${uid === course.userId ? ' 👑' : ''}${uid === me.uid ? ' (you)' : ''}</span>
                                 ${isOwner && uid !== me.uid ? `<button class="icon-btn" title="Remove member" onclick="AppController.removeMember(${Utils.js(course.id)}, ${Utils.js(uid)})">✕</button>` : ''}
                             </div>`).join('')}
-                    </div>` : '<p class="muted">Invite a friend (anywhere in the world!) to track this course with you. They just need an account with the same email.</p>'}
+                    </div>` : '<p class="muted">Invite a friend (anywhere in the world!) to track this goal with you. They just need an account with the same email.</p>'}
                 ${isOwner ? `
                     <div class="share-row">
                         <input type="email" id="inviteEmail" placeholder="friend@email.com">
                         <button class="btn btn-primary" onclick="AppController.invite(${Utils.js(course.id)})">Send Invite ✉️</button>
                     </div>` : ''}
                 ${pending.length ? `<div class="pending">Waiting for: ${pending.map(e => `<span class="tag">${esc(e)}${isOwner ? ` <a href="#" onclick="AppController.revokeInvite(${Utils.js(course.id)}, ${Utils.js(e)}); return false;" title="Cancel invite">✕</a>` : ''}</span>`).join(' ')}</div>` : ''}
-                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse(${Utils.js(course.id)})">Leave this course 🚪</button>` : ''}
+                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse(${Utils.js(course.id)})">Leave this goal 🚪</button>` : ''}
             </div>`;
 
         // History filter options
@@ -595,27 +599,24 @@ const UIModule = {
             <div class="main-container">
                 <div class="header">
                     <div>
-                        <h1>${esc(course.courseName)}</h1>
-                        <small>Started: ${Utils.formatDate(course.startDate)}${shared ? ' &middot; 👯 ' + memberIds.length + ' learners' : ''}</small>
+                        <h1>${cat.emoji} ${esc(course.courseName)}</h1>
+                        <small>${esc(cat.name)} &middot; Started: ${Utils.formatDate(course.startDate)}${shared ? ' &middot; 👯 ' + memberIds.length + ' people' : ''}</small>
                     </div>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="AppController.showCourses()">← Back to Courses</button>
-                        <button class="btn btn-secondary" onclick="AppController.logout()">Logout</button>
+                        <button class="btn btn-secondary" onclick="AppController.openGoalReport()">📅 Report</button>
+                        <button class="btn btn-secondary" onclick="AppController.showHome()">🏠 Home</button>
+                        <button class="btn btn-secondary" onclick="AppController.showCourses()">← My Goals</button>
                     </div>
                 </div>
 
                 <div class="tabs">
-                    ${tabBtn('progress', '📊 Progress')}
-                    ${tabBtn('together', '👯 Together')}
-                    ${tabBtn('library', '📚 Library')}
-                    ${tabBtn('cards', '🃏 Flashcards')}
-                    ${tabBtn('journal', '📓 Journal')}
-                    ${tabBtn('log', '📝 Log &amp; History')}
+                    ${cat.tabs.map(t => tabBtn(t, Categories.tabLabels[t])).join('')}
                 </div>
 
                 <div class="content">
                     <!-- ============ PROGRESS ============ -->
                     <div class="${panel('progress')}" id="tab-progress">
+                        <div id="liveBanner">${ViewsModule.liveBannerHtml()}</div>
                         <div class="mood-banner"><span class="mood-emoji">${mood.emoji}</span> ${mood.text}</div>
                         ${!loggedToday ? '<div class="today-banner">📅 Nothing logged for today yet - even 10 minutes counts!</div>' : ''}
                         ${reflectDue ? '<div class="today-banner">📓 Weekend reflection time! <a href="#" onclick="UIModule.switchTab(\'journal\'); return false;">Write this week\'s reflection</a></div>' : ''}
@@ -625,7 +626,8 @@ const UIModule = {
                             <div class="stat-card"><div class="stat-value">${streak.current}</div><div class="stat-label">Day Streak 🔥 (best ${streak.best})<br><small>🧊 Freeze ${streak.freezeUsedThisWeek ? 'used this week' : 'ready'}</small></div></div>
                             <div class="stat-card"><div class="stat-value">${stats.completed}</div><div class="stat-label">Wins 🏆</div></div>
                             <div class="stat-card"><div class="stat-value">${stats.totalDays}</div><div class="stat-label">Days on the Journey 🗓️</div></div>
-                            <div class="stat-card"><div class="stat-value">${stats.totalMinutes}</div><div class="stat-label">Minutes of Brain Gains ⏱️</div></div>
+                            <div class="stat-card"><div class="stat-value">${stats.totalMinutes}</div><div class="stat-label">${esc(cat.minutesLabel)}</div></div>
+                            ${cat.valueLabel ? `<div class="stat-card"><div class="stat-value">${pr ? esc(pr.value) : '-'}</div><div class="stat-label">Personal best 🏅${pr && pr.unit ? '<br><small>' + esc(pr.unit) + '</small>' : ''}</div></div>` : ''}
                         </div>
 
                         <div class="form-section week-card">
@@ -672,13 +674,13 @@ const UIModule = {
                         </div>
 
                         <div class="form-section">
-                            <h2>✅ Learning Checklist</h2>
+                            <h2>✅ ${esc(cat.checklistTitle)}</h2>
                             ${timelineHtml}
                             <div id="checklistBox">${UIModule.checklistHtml(course.id)}</div>
                         </div>
 
                         <div class="form-section">
-                            <h2>🗓️ Your Learning Heatmap</h2>
+                            <h2>🗓️ Your Heatmap</h2>
                             <div class="heatmap">${heatHtml}</div>
                             <div class="heat-legend"><span class="heat-cell heat-none"></span> none <span class="heat-cell heat-missed"></span> missed <span class="heat-cell heat-frozen"></span> freeze 🧊 <span class="heat-cell heat-done"></span> done</div>
                         </div>
@@ -697,19 +699,18 @@ const UIModule = {
 
                     <!-- ============ TOGETHER ============ -->
                     <div class="${panel('together')}" id="tab-together">
+                        <div id="liveBox">${ViewsModule.liveHtml(course)}</div>
                         ${leaderboardHtml}
                         ${shared ? `<div class="form-section"><h2>💬 Group Chat</h2>${ViewsModule.deniedNotice('chat')}<div id="courseChat">${ViewsModule.threadHtml('course', course.id, true)}</div></div>` : ''}
                         ${UIModule.challengeHtml(course, allMetrics, isOwner)}
                         ${shareHtml}
                     </div>
 
-                    <!-- ============ LIBRARY ============ -->
-                    <div class="${panel('library')}" id="tab-library">${ViewsModule.libraryHtml(course)}</div>
-
-                    <!-- ============ FLASHCARDS ============ -->
-                    <div class="${panel('cards')}" id="tab-cards">${ViewsModule.flashcardsHtml(course)}</div>
-
-                    <!-- ============ JOURNAL ============ -->
+                    ${cat.tabs.includes('milestones') ? `<div class="${panel('milestones')}" id="tab-milestones">${ViewsModule.milestonesHtml(course)}</div>` : ''}
+                    ${cat.tabs.includes('library') ? `<div class="${panel('library')}" id="tab-library">${ViewsModule.libraryHtml(course)}</div>` : ''}
+                    ${cat.tabs.includes('cards') ? `<div class="${panel('cards')}" id="tab-cards">${ViewsModule.flashcardsHtml(course)}</div>` : ''}
+                    ${cat.tabs.includes('questions') ? `<div class="${panel('questions')}" id="tab-questions">${ViewsModule.questionsHtml(course)}</div>` : ''}
+                    ${cat.tabs.includes('notes') ? `<div class="${panel('notes')}" id="tab-notes">${ViewsModule.notesHtml(course)}</div>` : ''}
                     <div class="${panel('journal')}" id="tab-journal">${ViewsModule.journalHtml(course)}</div>
 
                     <!-- ============ LOG & HISTORY ============ -->
@@ -733,7 +734,7 @@ const UIModule = {
                         </div>
 
                         <div class="form-section" id="logForm">
-                            <h2 id="formTitle">What did your brain do today? 🧠</h2>
+                            <h2 id="formTitle">${esc(cat.logTitle)}</h2>
                             <div class="form-row">
                                 <div class="form-group">
                                     <label>Date *</label>
@@ -754,10 +755,17 @@ const UIModule = {
                                     <input type="number" id="metricDuration" placeholder="0" min="0" max="1440">
                                 </div>
                                 <div class="form-group">
-                                    <label>Topic</label>
-                                    <input type="text" id="metricTopic" maxlength="200" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
+                                    <label>${esc(cat.topicLabel)}</label>
+                                    <input type="text" id="metricTopic" maxlength="200" placeholder="${esc(cat.topicPh)}">
                                 </div>
                             </div>
+                            ${cat.valueLabel ? `<div class="form-group full">
+                                <label>${esc(cat.valueLabel)} <small>(optional)</small></label>
+                                <div class="value-row">
+                                    <input type="number" id="metricValue" min="0" step="any" placeholder="0">
+                                    <select id="metricUnit">${cat.units.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('')}</select>
+                                </div>
+                            </div>` : ''}
                             <div class="form-group full">
                                 <label>Notes</label>
                                 <textarea id="metricNotes" maxlength="2000" placeholder="Add any notes" rows="2"></textarea>
@@ -784,7 +792,8 @@ const UIModule = {
                                             ${shared ? '<th>Who</th>' : ''}
                                             <th>Status</th>
                                             <th>Duration</th>
-                                            <th>Topic</th>
+                                            <th>${esc(cat.topicLabel)}</th>
+                                            ${cat.valueLabel ? '<th>Amount</th>' : ''}
                                             <th>Notes</th>
                                             ${shared ? '<th>Cheers</th>' : ''}
                                             <th>Action</th>

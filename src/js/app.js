@@ -20,9 +20,11 @@ const AppController = {
                 console.log('✓ User authenticated');
                 await SettingsModule.loadGoals();
                 SettingsModule.startReminderLoop();
-                AppController.showCourses();
+                AppController.showHome();
             } else {
                 console.log('✗ User not authenticated');
+                ChatManager.stop();
+                LiveSessions.stop();
                 UIModule.renderAuthScreen();
             }
         });
@@ -77,7 +79,7 @@ const AppController = {
     refreshVerification: async () => {
         const verified = await AuthModule.refreshVerification();
         Utils.showSuccess(verified ? 'Email verified - thank you! ✅' : 'Not verified yet. Open the link in the email, then try again.');
-        AppController.showCourses();
+        AppController.showHome();
     },
 
     /**
@@ -95,6 +97,7 @@ const AppController = {
             UIModule.currentCourseId = null;
             UIModule.activeTab = 'progress';
             ChatManager.stop();
+            LiveSessions.stop();
             await ProfileManager.load([AuthModule.getCurrentUser().uid]);
             const [courses, invitations] = await Promise.all([
                 CourseManager.getCourses(),
@@ -103,7 +106,8 @@ const AppController = {
             // Don't show an invitation for a course I already belong to
             const mine = new Set(courses.map(c => c.id));
             AppController.lastCourses = courses;
-            UIModule.renderCoursesScreen(courses, invitations.filter(c => !mine.has(c.id)));
+            AppController.lastInvites = invitations.filter(c => !mine.has(c.id));
+            UIModule.renderCoursesScreen(courses, AppController.lastInvites);
             AppController.refreshInstallButton();
         } catch (error) {
             console.error('Error loading courses:', error);
@@ -114,8 +118,8 @@ const AppController = {
     /**
      * Show course creation screen
      */
-    showCourseSetup: () => {
-        UIModule.renderCourseSetupScreen();
+    showCourseSetup: (category) => {
+        UIModule.renderCourseSetupScreen(category);
     },
 
     /**
@@ -132,7 +136,8 @@ const AppController = {
                 courseName,
                 description,
                 startDate,
-                endDate
+                endDate,
+                category: UIModule.setupCategory
             });
 
             // Reset form and go back to courses
@@ -165,11 +170,21 @@ const AppController = {
                 UIModule.editingResourceId = null;
                 ViewsModule.resFilters = { q: '', type: '', tag: '', hideDone: false, sort: 'smart' };
             }
+            const cat = Categories.get(course);
+            const has = (t) => cat.tabs.includes(t);
+            const none = Promise.resolve([]);
+            if (switching) NoteManager.editingId = null;
             [UIModule.resources, UIModule.flashcards, UIModule.reflections] = await Promise.all([
-                ResourceManager.getForCourse(courseId),
-                FlashcardManager.getForCourse(courseId),
-                JournalManager.getForCourse(courseId)
+                has('library') ? ResourceManager.getForCourse(courseId) : none,
+                has('cards') ? FlashcardManager.getForCourse(courseId) : none,
+                JournalManager.getForCourse(courseId),
+                has('milestones') ? MilestoneManager.getForCourse(courseId) : none,
+                has('questions') ? QuestionManager.getForCourse(courseId) : none,
+                has('notes') ? NoteManager.getForCourse(courseId) : none
             ]);
+            if (!has('milestones')) MilestoneManager.items = [];
+            if (!has('questions')) QuestionManager.items = [];
+            if (!has('notes')) NoteManager.items = [];
 
             UIModule.currentCourseId = courseId;
             UIModule.renderDashboardScreen(course, metrics, stats);
@@ -177,6 +192,10 @@ const AppController = {
             // Live comments / group chat
             if (ChatManager.courseId !== courseId || !ChatManager.unsub) {
                 ChatManager.subscribe(courseId, AppController.onChatChange);
+            }
+            // Live room (who is working right now) - real-time, one tiny listener
+            if (LiveSessions.courseId !== courseId || !LiveSessions.unsub) {
+                LiveSessions.subscribe(courseId);
             }
         } catch (error) {
             console.error('Error opening course:', error);
@@ -209,6 +228,11 @@ const AppController = {
         const duration = parseInt(document.getElementById('metricDuration').value) || 0;
         const topic = document.getElementById('metricTopic').value;
         const notes = document.getElementById('metricNotes').value;
+        const valueEl = document.getElementById('metricValue');
+        const unitEl = document.getElementById('metricUnit');
+        const value = valueEl ? valueEl.value : '';
+        const unit = unitEl ? unitEl.value : '';
+        const goal = UIModule.currentCourse || {};
 
         // Edit mode: save changes to an existing entry
         if (UIModule.editingMetricId) {
@@ -217,7 +241,9 @@ const AppController = {
                 return;
             }
             try {
-                await MetricsManager.updateMetric(UIModule.editingMetricId, { date, status, duration, topic, notes });
+                const edits = { date, status, duration, topic, notes };
+                if (valueEl) { edits.value = value; edits.unit = Categories.cleanUnit(goal, unit); }
+                await MetricsManager.updateMetric(UIModule.editingMetricId, edits);
                 UIModule.editingMetricId = null;
                 AppController.openCourse(courseId);
             } catch (error) {
@@ -235,7 +261,10 @@ const AppController = {
                 status,
                 duration,
                 topic,
-                notes
+                notes,
+                value,
+                unit,
+                goal
             });
             if (!created) return;
 
@@ -254,6 +283,7 @@ const AppController = {
             document.getElementById('metricDuration').value = '';
             document.getElementById('metricTopic').value = '';
             document.getElementById('metricNotes').value = '';
+            if (valueEl) valueEl.value = '';
 
             setTimeout(() => {
                 AppController.openCourse(courseId);
@@ -277,6 +307,10 @@ const AppController = {
         document.getElementById('metricDuration').value = metric.duration || '';
         document.getElementById('metricTopic').value = metric.topic || '';
         document.getElementById('metricNotes').value = metric.notes || '';
+        const vEl = document.getElementById('metricValue');
+        const uEl = document.getElementById('metricUnit');
+        if (vEl) vEl.value = Number(metric.value) > 0 ? metric.value : '';
+        if (uEl && metric.unit) uEl.value = metric.unit;
         document.getElementById('formTitle').textContent = 'Editing entry ✏️';
         document.getElementById('submitMetric').textContent = 'Save Changes 💾';
         document.getElementById('cancelEdit').style.display = 'inline-block';
@@ -339,10 +373,9 @@ const AppController = {
     saveProfile: async () => {
         const name = document.getElementById('profileName').value;
         const avatar = document.getElementById('profileAvatar').value;
-        if (await ProfileManager.save(name, avatar)) {
-            document.getElementById('profileModal').remove();
-            if (UIModule.currentCourseId) AppController.openCourse(UIModule.currentCourseId);
-            else AppController.showCourses();
+        const bioEl = document.getElementById('profileBio');
+        if (await ProfileManager.save(name, avatar, bioEl ? bioEl.value : '')) {
+            AppController.showProfile();
         }
     },
 

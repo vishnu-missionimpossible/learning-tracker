@@ -49,3 +49,15 @@ Run `bash tools/generate-sri.sh` on your computer and paste the printed tags ove
   members can only change their *own* reaction / vote / done mark, no spoofing of names/emails in buddy requests.
 - CSV export neutralises spreadsheet formulas (`=cmd|...`).
 - Service worker never caches error responses.
+
+## Added with Home / Profile / goal types
+
+New Firestore collections, all covered by `firestore.rules` (publish it again after every update):
+
+- `milestones` - shared checklist; members can only tick their own progress.
+- `sessions` - live study room; one doc per person per goal (`goalId_uid`), max 4 hours, members only.
+- `questions` - question bank; only the asker or goal owner can edit / mark solved.
+- `notes` - private by default; readable by goal members only when the author marks it shared.
+- `courses.category`, `metrics.value/unit`, `profiles.bio` - validated fields (allow-lists, length and range limits).
+
+Notes are rendered with a small markdown converter that HTML-escapes everything first, and only `http(s)` links are allowed.

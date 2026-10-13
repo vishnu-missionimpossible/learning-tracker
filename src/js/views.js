@@ -361,9 +361,10 @@ const ViewsModule = {
                         <span class="user-email">Learning is better together - match with someone who wants to learn the same thing</span>
                     </div>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="AppController.showCourses()">← Back to Courses</button>
+                        <button class="btn btn-secondary" onclick="AppController.showHome()">← Home</button>
                     </div>
                 </div>
+                ${HomeModule.navHtml('buddies')}
                 <div class="content">
                     ${BuddyManager.denied ? '<div class="today-banner">🔒 Needs the latest security rules: publish <strong>firestore.rules</strong> in Firebase Console → Firestore Database → Rules, then refresh.</div>' : ''}
                     <div class="quote-banner">🔐 Privacy: your post shows only your display name, avatar and what you wrote. Your email is shared only with the person you send a request to - and only if you send one.</div>
