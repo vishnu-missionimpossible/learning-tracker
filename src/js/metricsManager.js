@@ -34,6 +34,7 @@ const MetricsManager = {
             if (!metricData.status) {
                 throw new Error('Status is required');
             }
+            const course = metricData.course || {};
 
 
             const metric = {
@@ -47,8 +48,12 @@ const MetricsManager = {
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
+            // Custom tracker fields (weight, calories, reps, mood ...) - validated against the tracker's own fields
+            const values = Trackers.cleanValues(course, metricData.values);
+            if (Object.keys(values).length) metric.values = values;
 
             const docRef = await db.collection('metrics').add(metric);
+            MetricsManager.invalidateMine();
             console.log('✓ Metric added with ID:', docRef.id);
 
             if (metricData.status === 'Done') {
@@ -59,9 +64,11 @@ const MetricsManager = {
             }
 
             // Wait a bit for the success message to show
-            setTimeout(() => {
-                AppController.openCourse(metricData.courseId);
-            }, 1000);
+            if (!metricData.stay) {
+                setTimeout(() => {
+                    AppController.openCourse(metricData.courseId);
+                }, 1000);
+            }
 
             return { id: docRef.id, ...metric };
         } catch (error) {
@@ -92,6 +99,26 @@ const MetricsManager = {
         } catch (error) {
             console.error('Error fetching metrics:', error);
             Utils.showError('Error loading metrics: ' + error.message);
+            return [];
+        }
+    },
+
+    // ---- All of MY entries (Home screen). Cached so reopening Home costs no reads (free-plan friendly) ----
+    mineCache: null,
+    mineAt: 0,
+    invalidateMine: () => { MetricsManager.mineCache = null; },
+
+    getMine: async (force) => {
+        const fresh = MetricsManager.mineCache && Date.now() - MetricsManager.mineAt < 10 * 60 * 1000;
+        if (fresh && !force) return MetricsManager.mineCache;
+        try {
+            const uid = AuthModule.getCurrentUser().uid;
+            const snap = await db.collection('metrics').where('userId', '==', uid).get();
+            MetricsManager.mineCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            MetricsManager.mineAt = Date.now();
+            return MetricsManager.mineCache;
+        } catch (error) {
+            console.warn('Could not load my entries:', error.message);
             return [];
         }
     },
@@ -173,6 +200,7 @@ const MetricsManager = {
             if ('date' in updates && !/^\d{4}-\d{2}-\d{2}$/.test(updates.date)) throw new Error('Please pick a valid date');
             updates.updatedAt = new Date();
             await db.collection('metrics').doc(metricId).update(updates);
+            MetricsManager.invalidateMine();
             Utils.showSuccess(Fun.msg('edit'));
         } catch (error) {
             console.error('Error updating metric:', error);
@@ -190,6 +218,7 @@ const MetricsManager = {
         try {
             if (confirm('Are you sure you want to delete this entry?')) {
                 await db.collection('metrics').doc(metricId).delete();
+                MetricsManager.invalidateMine();
                 console.log('✓ Metric deleted');
                 Utils.showSuccess(Fun.msg('entryDelete'));
 

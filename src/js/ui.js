@@ -270,10 +270,12 @@ const UIModule = {
         const esc = Utils.esc;
         const course = UIModule.currentCourse;
         const shared = ((course.memberIds || []).length > 1);
+        const tpl = Trackers.tpl(course);
+        const tfields = Trackers.fields(course);
         const list = UIModule.filteredMetrics();
 
         if (!list.length) {
-            return `<tr><td colspan="8" style="text-align:center;color:#999;">No entries match your filters 🔍</td></tr>`;
+            return `<tr><td colspan="16" style="text-align:center;color:#999;">No entries match your filters 🔍</td></tr>`;
         }
         return list.map(metric => {
             const mine = metric.userId === me.uid;
@@ -293,20 +295,21 @@ const UIModule = {
             <tr>
                 <td>${Utils.formatDate(metric.date)}</td>
                 ${shared ? `<td>${esc(UIModule.nameOf(course, metric.userId))}${mine ? ' (you)' : ''}</td>` : ''}
-                <td><span class="badge badge-${esc((metric.status || '').toLowerCase())}">${esc(metric.status)}</span></td>
-                <td>${Number(metric.duration) || 0} min</td>
-                <td>${esc(metric.topic)}</td>
+                ${tpl.showStatus ? `<td><span class="badge badge-${esc((metric.status || '').toLowerCase())}">${esc(metric.status)}</span></td>` : ''}
+                ${tpl.showDuration ? `<td>${Number(metric.duration) || 0} min</td>` : ''}
+                ${tpl.showTopic ? `<td>${esc(metric.topic)}</td>` : ''}
+                ${tfields.map(f => `<td>${esc(Trackers.fmt(f, Trackers.rawValue(metric, f.id)))}</td>`).join('')}
                 <td>${esc(metric.notes)}</td>
                 ${shared ? `<td>${cheers}</td>` : ''}
                 <td class="actions-cell">
                     ${shared ? `<button class="chip-btn ${UIModule.openThreads['entry:' + metric.id] ? 'on' : ''}" title="Comments" onclick="AppController.toggleThread('entry',${Utils.js(metric.id)})">💬 ${ChatManager.count('entry', metric.id) || ''}</button>` : ''}
                     ${mine ? `
-                        <button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard(${Utils.js(metric.id)})">🃏</button>
+                        ${tpl.learning ? `<button class="chip-btn" title="Make a flashcard from this entry" onclick="AppController.entryToCard(${Utils.js(metric.id)})">🃏</button>` : ''}
                         <button class="btn btn-sm btn-secondary" onclick="AppController.editMetric(${Utils.js(metric.id)})">Edit</button>
                         <button class="btn btn-sm btn-secondary" onclick="AppController.deleteMetric(${Utils.js(metric.id)})">Delete</button>` : ''}
                 </td>
             </tr>
-            ${shared && UIModule.openThreads['entry:' + metric.id] ? `<tr class="thread-row"><td colspan="9">${ViewsModule.threadHtml('entry', metric.id)}</td></tr>` : ''}`;
+            ${shared && UIModule.openThreads['entry:' + metric.id] ? `<tr class="thread-row"><td colspan="16">${ViewsModule.threadHtml('entry', metric.id)}</td></tr>` : ''}`;
         }).join('');
     },
 
@@ -473,6 +476,12 @@ const UIModule = {
         const shared = memberIds.length > 1;
         const nameOf = (uid) => UIModule.nameOf(course, uid);
         const myMetrics = allMetrics.filter(m => m.userId === me.uid);
+        const tpl = Trackers.tpl(course);
+        const tfields = Trackers.fields(course);
+        const goalProg = Trackers.goalProgress(course, myMetrics);
+        const summaries = Trackers.fieldSummaries(course, myMetrics);
+        const chartSpecs = Trackers.chartSpecs(course, myMetrics);
+        if (!tpl.learning && (UIModule.activeTab === 'library' || UIModule.activeTab === 'cards')) UIModule.activeTab = 'progress';
 
         UIModule.allMetrics = allMetrics;
         UIModule.myMetrics = myMetrics;
@@ -547,7 +556,7 @@ const UIModule = {
         const pending = course.invitedEmails || [];
         const shareHtml = `
             <div class="form-section">
-                <h2>👯 Learn Together</h2>
+                <h2>👯 Better Together</h2>
                 ${shared ? `
                     <div class="member-list">
                         ${memberIds.map(uid => `
@@ -555,14 +564,14 @@ const UIModule = {
                                 <span>${esc(nameOf(uid))}${uid === course.userId ? ' 👑' : ''}${uid === me.uid ? ' (you)' : ''}</span>
                                 ${isOwner && uid !== me.uid ? `<button class="icon-btn" title="Remove member" onclick="AppController.removeMember(${Utils.js(course.id)}, ${Utils.js(uid)})">✕</button>` : ''}
                             </div>`).join('')}
-                    </div>` : '<p class="muted">Invite a friend (anywhere in the world!) to track this course with you. They just need an account with the same email.</p>'}
+                    </div>` : '<p class="muted">Invite a friend (anywhere in the world!) to track this with you. They just need an account with the same email.</p>'}
                 ${isOwner ? `
                     <div class="share-row">
                         <input type="email" id="inviteEmail" placeholder="friend@email.com">
                         <button class="btn btn-primary" onclick="AppController.invite(${Utils.js(course.id)})">Send Invite ✉️</button>
                     </div>` : ''}
                 ${pending.length ? `<div class="pending">Waiting for: ${pending.map(e => `<span class="tag">${esc(e)}${isOwner ? ` <a href="#" onclick="AppController.revokeInvite(${Utils.js(course.id)}, ${Utils.js(e)}); return false;" title="Cancel invite">✕</a>` : ''}</span>`).join(' ')}</div>` : ''}
-                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse(${Utils.js(course.id)})">Leave this course 🚪</button>` : ''}
+                ${!isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="AppController.leaveCourse(${Utils.js(course.id)})">Leave this tracker 🚪</button>` : ''}
             </div>`;
 
         // History filter options
@@ -570,13 +579,13 @@ const UIModule = {
         const filterBar = `
             <div class="filter-bar">
                 <input type="search" id="fQ" placeholder="🔍 Search topic or notes" oninput="AppController.applyFilters()">
-                <select id="fStatus" onchange="AppController.applyFilters()">
+                ${tpl.showStatus ? `<select id="fStatus" onchange="AppController.applyFilters()">
                     <option value="">All statuses</option><option value="Done">Done</option><option value="Missed">Missed</option>
-                </select>
-                <select id="fTopic" onchange="AppController.applyFilters()">
+                </select>` : ''}
+                ${tpl.showTopic ? `<select id="fTopic" onchange="AppController.applyFilters()">
                     <option value="">All topics</option>
                     ${topicOptions.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
-                </select>
+                </select>` : ''}
                 ${shared ? `<select id="fMember" onchange="AppController.applyFilters()">
                     <option value="">Everyone</option>
                     ${memberIds.map(u => `<option value="${esc(u)}">${esc(nameOf(u))}</option>`).join('')}
@@ -595,11 +604,12 @@ const UIModule = {
             <div class="main-container">
                 <div class="header">
                     <div>
-                        <h1>${esc(course.courseName)}</h1>
-                        <small>Started: ${Utils.formatDate(course.startDate)}${shared ? ' &middot; 👯 ' + memberIds.length + ' learners' : ''}</small>
+                        <h1>${tpl.emoji} ${esc(course.courseName)}</h1>
+                        <small>${esc(tpl.name)} &middot; Started: ${Utils.formatDate(course.startDate)}${shared ? ' &middot; 👯 ' + memberIds.length + ' people' : ''}</small>
                     </div>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="AppController.showCourses()">← Back to Courses</button>
+                        ${isOwner ? `<button class="btn btn-secondary" onclick="AppController.editTracker(${Utils.js(course.id)})">⚙️ Edit</button>` : ''}
+                        <button class="btn btn-secondary" onclick="AppController.showCourses()">← Home</button>
                         <button class="btn btn-secondary" onclick="AppController.logout()">Logout</button>
                     </div>
                 </div>
@@ -607,8 +617,8 @@ const UIModule = {
                 <div class="tabs">
                     ${tabBtn('progress', '📊 Progress')}
                     ${tabBtn('together', '👯 Together')}
-                    ${tabBtn('library', '📚 Library')}
-                    ${tabBtn('cards', '🃏 Flashcards')}
+                    ${tpl.learning ? tabBtn('library', '📚 Library') : ''}
+                    ${tpl.learning ? tabBtn('cards', '🃏 Flashcards') : ''}
                     ${tabBtn('journal', '📓 Journal')}
                     ${tabBtn('log', '📝 Log &amp; History')}
                 </div>
@@ -625,8 +635,11 @@ const UIModule = {
                             <div class="stat-card"><div class="stat-value">${streak.current}</div><div class="stat-label">Day Streak 🔥 (best ${streak.best})<br><small>🧊 Freeze ${streak.freezeUsedThisWeek ? 'used this week' : 'ready'}</small></div></div>
                             <div class="stat-card"><div class="stat-value">${stats.completed}</div><div class="stat-label">Wins 🏆</div></div>
                             <div class="stat-card"><div class="stat-value">${stats.totalDays}</div><div class="stat-label">Days on the Journey 🗓️</div></div>
-                            <div class="stat-card"><div class="stat-value">${stats.totalMinutes}</div><div class="stat-label">Minutes of Brain Gains ⏱️</div></div>
+                            ${tpl.showDuration ? `<div class="stat-card"><div class="stat-value">${stats.totalMinutes}</div><div class="stat-label">${esc(tpl.minutesLabel)}</div></div>` : ''}
                         </div>
+
+                        ${TrackerUI.goalCardHtml(goalProg)}
+                        ${TrackerUI.summaryCardsHtml(summaries)}
 
                         <div class="form-section week-card">
                             <h2>📋 Your Week in Review</h2>
@@ -672,13 +685,13 @@ const UIModule = {
                         </div>
 
                         <div class="form-section">
-                            <h2>✅ Learning Checklist</h2>
+                            <h2>✅ ${esc(tpl.checklistTitle)}</h2>
                             ${timelineHtml}
                             <div id="checklistBox">${UIModule.checklistHtml(course.id)}</div>
                         </div>
 
                         <div class="form-section">
-                            <h2>🗓️ Your Learning Heatmap</h2>
+                            <h2>🗓️ Your Heatmap</h2>
                             <div class="heatmap">${heatHtml}</div>
                             <div class="heat-legend"><span class="heat-cell heat-none"></span> none <span class="heat-cell heat-missed"></span> missed <span class="heat-cell heat-frozen"></span> freeze 🧊 <span class="heat-cell heat-done"></span> done</div>
                         </div>
@@ -688,11 +701,12 @@ const UIModule = {
                                 <h2>📈 Consistency Trend</h2>
                                 <div class="chart-box"><canvas id="trendChart"></canvas></div>
                             </div>
-                            <div class="form-section">
+                            ${tpl.showDuration ? `<div class="form-section">
                                 <h2>⏱️ Minutes per Week</h2>
                                 <div class="chart-box"><canvas id="weeklyChart"></canvas></div>
-                            </div>
+                            </div>` : ''}
                         </div>
+                        ${TrackerUI.chartsSectionHtml(chartSpecs)}
                     </div>
 
                     <!-- ============ TOGETHER ============ -->
@@ -704,16 +718,17 @@ const UIModule = {
                     </div>
 
                     <!-- ============ LIBRARY ============ -->
-                    <div class="${panel('library')}" id="tab-library">${ViewsModule.libraryHtml(course)}</div>
+                    ${tpl.learning ? `<div class="${panel('library')}" id="tab-library">${ViewsModule.libraryHtml(course)}</div>` : ''}
 
                     <!-- ============ FLASHCARDS ============ -->
-                    <div class="${panel('cards')}" id="tab-cards">${ViewsModule.flashcardsHtml(course)}</div>
+                    ${tpl.learning ? `<div class="${panel('cards')}" id="tab-cards">${ViewsModule.flashcardsHtml(course)}</div>` : ''}
 
                     <!-- ============ JOURNAL ============ -->
                     <div class="${panel('journal')}" id="tab-journal">${ViewsModule.journalHtml(course)}</div>
 
                     <!-- ============ LOG & HISTORY ============ -->
                     <div class="${panel('log')}" id="tab-log">
+                        ${tpl.showDuration ? `
                         <div class="form-section timer-card" id="timerCard">
                             <h2>⏱️ Focus Timer</h2>
                             <div class="timer-row">
@@ -731,34 +746,36 @@ const UIModule = {
                                 </div>
                             </div>
                         </div>
+                        ` : ''}
 
                         <div class="form-section" id="logForm">
-                            <h2 id="formTitle">What did your brain do today? 🧠</h2>
+                            <h2 id="formTitle">${esc(tpl.logTitle)}</h2>
                             <div class="form-row">
                                 <div class="form-group">
                                     <label>Date *</label>
                                     <input type="text" id="metricDate" class="datepicker" placeholder="Select date">
                                 </div>
-                                <div class="form-group">
+                                ${tpl.showStatus ? `<div class="form-group">
                                     <label>Status *</label>
                                     <select id="metricStatus">
                                         <option value="">Select status</option>
                                         <option value="Done">Done 🎉</option>
                                         <option value="Missed">Missed (we forgive you) 🫶</option>
                                     </select>
-                                </div>
+                                </div>` : `<input type="hidden" id="metricStatus" value="Done">`}
                             </div>
-                            <div class="form-row">
-                                <div class="form-group">
+                            ${(tpl.showDuration || tpl.showTopic) ? `<div class="form-row">
+                                ${tpl.showDuration ? `<div class="form-group">
                                     <label>Duration (minutes)</label>
                                     <input type="number" id="metricDuration" placeholder="0" min="0" max="1440">
-                                </div>
-                                <div class="form-group">
-                                    <label>Topic</label>
-                                    <input type="text" id="metricTopic" maxlength="200" placeholder="e.g., Loops (the good kind of going in circles) 🔁">
-                                </div>
-                            </div>
-                            <div class="form-group full">
+                                </div>` : ''}
+                                ${tpl.showTopic ? `<div class="form-group">
+                                    <label>${esc(tpl.topicLabel || 'Topic')}</label>
+                                    <input type="text" id="metricTopic" maxlength="200" placeholder="${esc(tpl.topicPh || '')}">
+                                </div>` : ''}
+                            </div>` : ''}
+                            ${tfields.length ? `<div class="form-row field-form">${TrackerUI.formFieldsHtml(course, {}, 'fld_')}</div>` : ''}
+<div class="form-group full">
                                 <label>Notes</label>
                                 <textarea id="metricNotes" maxlength="2000" placeholder="Add any notes" rows="2"></textarea>
                             </div>
@@ -782,9 +799,10 @@ const UIModule = {
                                         <tr>
                                             <th>Date</th>
                                             ${shared ? '<th>Who</th>' : ''}
-                                            <th>Status</th>
-                                            <th>Duration</th>
-                                            <th>Topic</th>
+                                            ${tpl.showStatus ? '<th>Status</th>' : ''}
+                                            ${tpl.showDuration ? '<th>Duration</th>' : ''}
+                                            ${tpl.showTopic ? `<th>${esc(tpl.topicLabel || 'Topic')}</th>` : ''}
+                                            ${tfields.map(f => `<th>${esc(f.label)}</th>`).join('')}
                                             <th>Notes</th>
                                             ${shared ? '<th>Cheers</th>' : ''}
                                             <th>Action</th>
@@ -801,6 +819,7 @@ const UIModule = {
         `;
         UIModule.initializeDatePickers();
         UIModule.renderCharts(myMetrics, course);
+        TrackerUI.renderFieldCharts(chartSpecs);
         UIModule.refreshHistory();
         TimerModule.mount(course.id);
     },

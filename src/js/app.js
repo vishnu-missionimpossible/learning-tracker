@@ -95,27 +95,30 @@ const AppController = {
             UIModule.currentCourseId = null;
             UIModule.activeTab = 'progress';
             ChatManager.stop();
+            TimerModule.courseId = null;
             await ProfileManager.load([AuthModule.getCurrentUser().uid]);
-            const [courses, invitations] = await Promise.all([
+            const [courses, invitations, mine] = await Promise.all([
                 CourseManager.getCourses(),
-                ShareManager.getInvitations()
+                ShareManager.getInvitations(),
+                MetricsManager.getMine()
             ]);
-            // Don't show an invitation for a course I already belong to
-            const mine = new Set(courses.map(c => c.id));
+            // Don't show an invitation for a tracker I already belong to
+            const have = new Set(courses.map(c => c.id));
             AppController.lastCourses = courses;
-            UIModule.renderCoursesScreen(courses, invitations.filter(c => !mine.has(c.id)));
-            AppController.refreshInstallButton();
+            HomeModule.render(courses, invitations.filter(c => !have.has(c.id)), mine);
         } catch (error) {
-            console.error('Error loading courses:', error);
-            Utils.showError('Error loading courses');
+            console.error('Error loading home:', error);
+            Utils.showError('Error loading your trackers');
         }
     },
+
+    showHome: () => AppController.showCourses(),
 
     /**
      * Show course creation screen
      */
-    showCourseSetup: () => {
-        UIModule.renderCourseSetupScreen();
+    showCourseSetup: (template) => {
+        TrackerUI.renderSetup(template);
     },
 
     /**
@@ -127,20 +130,98 @@ const AppController = {
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
 
+        let setup;
+        try {
+            setup = TrackerUI.collect();
+        } catch (error) {
+            Utils.showError(error.message);
+            return;
+        }
+
         try {
             await CourseManager.createCourse({
                 courseName,
                 description,
                 startDate,
-                endDate
+                endDate,
+                category: setup.category,
+                fields: setup.fields,
+                goal: setup.goal
             });
-
-            // Reset form and go back to courses
-            setTimeout(() => {
-                AppController.showCourses();
-            }, 500);
         } catch (error) {
-            console.error('Error creating course:', error);
+            console.error('Error creating tracker:', error);
+        }
+    },
+
+    /** Edit a tracker's name, end date, fields and goal (owner only) */
+    editTracker: (courseId) => {
+        const course = UIModule.currentCourse;
+        if (!course || course.id !== courseId || course.userId !== AuthModule.getCurrentUser().uid) return;
+        TrackerUI.renderEdit(course);
+    },
+
+    saveTracker: async (courseId) => {
+        const course = UIModule.currentCourse;
+        if (!course || course.id !== courseId) return;
+        let setup;
+        try {
+            setup = TrackerUI.collect();
+        } catch (error) {
+            Utils.showError(error.message);
+            return;
+        }
+        const name = document.getElementById('courseName').value.trim();
+        if (!name) {
+            Utils.showError('Please give your tracker a name');
+            return;
+        }
+        const endDate = document.getElementById('endDate').value;
+        if (endDate && endDate < course.startDate) {
+            Utils.showError('End date cannot be before the start date');
+            return;
+        }
+        try {
+            await CourseManager.updateCourse(courseId, {
+                courseName: name.slice(0, 100),
+                description: document.getElementById('courseDescription').value.slice(0, 500),
+                endDate: endDate || null,
+                fields: setup.fields,
+                goal: setup.goal
+            });
+            AppController.openCourse(courseId);
+        } catch (error) {
+            console.error('Error saving tracker:', error);
+        }
+    },
+
+    // ---------- Quick log from Home ----------
+    quickLog: (courseId) => {
+        const course = AppController.lastCourses.find(c => c.id === courseId);
+        if (course) HomeModule.quickLogModal(course);
+    },
+
+    submitQuickLog: async (courseId) => {
+        const course = AppController.lastCourses.find(c => c.id === courseId);
+        if (!course) return;
+        const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+        try {
+            const created = await MetricsManager.addMetric({
+                courseId,
+                course,
+                date: Analytics.today(),
+                status: val('qlStatus') || 'Done',
+                duration: val('qlDuration'),
+                topic: val('qlTopic'),
+                notes: val('qlNotes'),
+                values: TrackerUI.readForm(course, 'q_'),
+                stay: true
+            });
+            if (!created) return;
+            const modal = document.getElementById('quickLogModal');
+            if (modal) modal.remove();
+            AppController.showCourses();
+        } catch (error) {
+            console.error('Quick log error:', error);
         }
     },
 
@@ -165,9 +246,10 @@ const AppController = {
                 UIModule.editingResourceId = null;
                 ViewsModule.resFilters = { q: '', type: '', tag: '', hideDone: false, sort: 'smart' };
             }
+            const learning = Trackers.tpl(course).learning;
             [UIModule.resources, UIModule.flashcards, UIModule.reflections] = await Promise.all([
-                ResourceManager.getForCourse(courseId),
-                FlashcardManager.getForCourse(courseId),
+                learning ? ResourceManager.getForCourse(courseId) : Promise.resolve([]),
+                learning ? FlashcardManager.getForCourse(courseId) : Promise.resolve([]),
                 JournalManager.getForCourse(courseId)
             ]);
 
@@ -204,11 +286,14 @@ const AppController = {
      * @param {string} courseId - Course ID
      */
     addMetric: async (courseId) => {
-        const date = document.getElementById('metricDate').value;
-        const status = document.getElementById('metricStatus').value;
-        const duration = parseInt(document.getElementById('metricDuration').value) || 0;
-        const topic = document.getElementById('metricTopic').value;
-        const notes = document.getElementById('metricNotes').value;
+        const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+        const course = UIModule.currentCourse || {};
+        const date = val('metricDate');
+        const status = val('metricStatus') || (Trackers.tpl(course).showStatus ? '' : 'Done');
+        const duration = parseInt(val('metricDuration')) || 0;
+        const topic = val('metricTopic');
+        const notes = val('metricNotes');
+        const values = TrackerUI.readForm(course, 'fld_');
 
         // Edit mode: save changes to an existing entry
         if (UIModule.editingMetricId) {
@@ -217,7 +302,7 @@ const AppController = {
                 return;
             }
             try {
-                await MetricsManager.updateMetric(UIModule.editingMetricId, { date, status, duration, topic, notes });
+                await MetricsManager.updateMetric(UIModule.editingMetricId, { date, status, duration, topic, notes, values });
                 UIModule.editingMetricId = null;
                 AppController.openCourse(courseId);
             } catch (error) {
@@ -231,11 +316,13 @@ const AppController = {
         try {
             const created = await MetricsManager.addMetric({
                 courseId,
+                course,
                 date,
                 status,
                 duration,
                 topic,
-                notes
+                notes,
+                values
             });
             if (!created) return;
 
@@ -250,10 +337,10 @@ const AppController = {
             }
 
             // Clear form and refresh dashboard
-            document.getElementById('metricStatus').value = '';
-            document.getElementById('metricDuration').value = '';
-            document.getElementById('metricTopic').value = '';
-            document.getElementById('metricNotes').value = '';
+            const clear = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
+            if (Trackers.tpl(course).showStatus) clear('metricStatus');
+            ['metricDuration', 'metricTopic', 'metricNotes'].forEach(clear);
+            Trackers.fields(course).forEach(f => clear('fld_' + f.id));
 
             setTimeout(() => {
                 AppController.openCourse(courseId);
@@ -273,10 +360,12 @@ const AppController = {
         const dateInput = document.getElementById('metricDate');
         if (dateInput._flatpickr) dateInput._flatpickr.setDate(metric.date, false);
         else dateInput.value = metric.date;
-        document.getElementById('metricStatus').value = metric.status;
-        document.getElementById('metricDuration').value = metric.duration || '';
-        document.getElementById('metricTopic').value = metric.topic || '';
-        document.getElementById('metricNotes').value = metric.notes || '';
+        const put = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        put('metricStatus', metric.status);
+        put('metricDuration', metric.duration || '');
+        put('metricTopic', metric.topic || '');
+        put('metricNotes', metric.notes || '');
+        TrackerUI.fillForm(UIModule.currentCourse, metric.values, 'fld_');
         document.getElementById('formTitle').textContent = 'Editing entry ✏️';
         document.getElementById('submitMetric').textContent = 'Save Changes 💾';
         document.getElementById('cancelEdit').style.display = 'inline-block';
@@ -314,8 +403,10 @@ const AppController = {
     /** Fill the log form from the focus timer */
     useTimer: () => {
         const minutes = TimerModule.minutes();
-        document.getElementById('metricDuration').value = minutes;
-        document.getElementById('metricStatus').value = 'Done';
+        const dur = document.getElementById('metricDuration');
+        const st = document.getElementById('metricStatus');
+        if (dur) dur.value = minutes;
+        if (st) st.value = 'Done';
         TimerModule.reset();
         document.getElementById('logForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
         Utils.showSuccess('Filled in ' + minutes + ' min - add a topic and hit Log It! ✅');

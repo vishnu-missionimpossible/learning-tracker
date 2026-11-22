@@ -72,9 +72,49 @@ service cloud.firestore {
                 && c.target is int && c.target >= 1 && c.target <= 365
                 && isDateStr(c.startDate) && isDateStr(c.endDate));
       }
+      // ---- custom tracker fields (max 10 slots f1..f10; removed fields are archived, never reused) ----
+      function validOptions(o) {
+        return o is list && o.size() <= 8
+            && (o.size() < 1 || str(o[0], 30)) && (o.size() < 2 || str(o[1], 30))
+            && (o.size() < 3 || str(o[2], 30)) && (o.size() < 4 || str(o[3], 30))
+            && (o.size() < 5 || str(o[4], 30)) && (o.size() < 6 || str(o[5], 30))
+            && (o.size() < 7 || str(o[6], 30)) && (o.size() < 8 || str(o[7], 30));
+      }
+      function validFieldDef(f) {
+        return f is map
+            && f.keys().hasOnly(['id', 'label', 'type', 'unit', 'options', 'agg', 'archived'])
+            && f.id in ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10']
+            && nonEmptyStr(f.label, 40)
+            && f.type in ['number', 'rating', 'yesno', 'text', 'choice']
+            && str(f.get('unit', ''), 12)
+            && f.get('agg', 'sum') in ['sum', 'avg', 'last', 'max']
+            && f.get('archived', false) is bool
+            && validOptions(f.get('options', []));
+      }
+      function fieldAt(fs, i) {
+        return fs.size() <= i || validFieldDef(fs[i]);
+      }
+      function validFields(fs) {
+        return fs is list && fs.size() <= 10
+            && fieldAt(fs, 0) && fieldAt(fs, 1) && fieldAt(fs, 2) && fieldAt(fs, 3) && fieldAt(fs, 4)
+            && fieldAt(fs, 5) && fieldAt(fs, 6) && fieldAt(fs, 7) && fieldAt(fs, 8) && fieldAt(fs, 9);
+      }
+      function validGoal(g) {
+        return g == null || (g is map
+            && g.keys().hasOnly(['kind', 'field', 'op', 'value'])
+            && g.kind in ['frequency', 'daily', 'weekly', 'reach']
+            && str(g.get('field', ''), 10)
+            && g.get('op', 'atLeast') in ['atLeast', 'atMost']
+            && g.value is number && g.value >= 0 && g.value <= 10000000);
+      }
+
       function validCourse(d) {
         return d.keys().hasOnly(['userId', 'courseName', 'startDate', 'endDate', 'description', 'createdAt',
-                                 'updatedAt', 'isActive', 'memberIds', 'memberEmails', 'invitedEmails', 'challenge'])
+                                 'updatedAt', 'isActive', 'memberIds', 'memberEmails', 'invitedEmails', 'challenge',
+                                 'category', 'fields', 'goal'])
+            && d.get('category', 'study') in ['study', 'fitness', 'cardio', 'weight', 'food', 'water', 'sleep', 'habit', 'mood', 'hobby', 'custom']
+            && validFields(d.get('fields', []))
+            && validGoal(d.get('goal', null))
             && nonEmptyStr(d.courseName, 100)
             && str(d.description, 500)
             && isDateStr(d.startDate)
@@ -154,9 +194,24 @@ service cloud.firestore {
     // ---------------- metrics (log entries) ----------------
     match /metrics/{metricId} {
 
+      // one entry value: a bounded number, a yes/no, or short text (field ids f1..f10)
+      function okVal(v) {
+        return (v is number && v >= -10000000 && v <= 10000000) || v is bool || (v is string && v.size() <= 200);
+      }
+      function valAt(m, k) {
+        return !(k in m) || okVal(m[k]);
+      }
+      function validValues(m) {
+        return m is map && m.size() <= 10
+            && m.keys().hasOnly(['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10'])
+            && valAt(m, 'f1') && valAt(m, 'f2') && valAt(m, 'f3') && valAt(m, 'f4') && valAt(m, 'f5')
+            && valAt(m, 'f6') && valAt(m, 'f7') && valAt(m, 'f8') && valAt(m, 'f9') && valAt(m, 'f10');
+      }
+
       function validMetric(d) {
         return d.keys().hasOnly(['userId', 'courseId', 'date', 'status', 'duration', 'topic', 'notes',
-                                 'createdAt', 'updatedAt', 'reactions'])
+                                 'createdAt', 'updatedAt', 'reactions', 'values'])
+            && validValues(d.get('values', {}))
             && d.userId is string
             && d.courseId is string
             && isDateStr(d.date)

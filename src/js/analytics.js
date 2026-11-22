@@ -269,9 +269,11 @@ const Analytics = {
             if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
             return '"' + t.replace(/"/g, '""') + '"';
         };
-        const header = ['Course', 'Date', 'Member', 'Status', 'Duration (min)', 'Topic', 'Notes'];
+        const fields = Trackers.allFields(course);
+        const header = ['Tracker', 'Date', 'Member', 'Status', 'Duration (min)', 'Topic', 'Notes', ...fields.map(f => f.label + (f.unit ? ' (' + f.unit + ')' : ''))];
         const rows = metrics.map(m => [
-            course.courseName, m.date, emailOf(m.userId), m.status, m.duration || 0, m.topic || '', m.notes || ''
+            course.courseName, m.date, emailOf(m.userId), m.status, m.duration || 0, m.topic || '', m.notes || '',
+            ...fields.map(f => { const v = m.values && m.values[f.id]; return v === undefined ? '' : Trackers.fmt({ ...f, unit: '' }, v).replace(/⭐/g, '*'); })
         ]);
         return [header, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
     },
