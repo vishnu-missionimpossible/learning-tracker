@@ -24,8 +24,6 @@ Object.assign(AppController, {
         UIModule.refreshHistory();
         const grid = document.getElementById('resGrid');
         if (grid) grid.innerHTML = ViewsModule.resourceCardsHtml(course);
-        const qa = document.getElementById('qaList');
-        if (qa) qa.innerHTML = ViewsModule.questionListHtml(course);
         const chat = document.getElementById('courseChat');
         if (chat) {
             chat.innerHTML = ViewsModule.threadHtml('course', course.id, true);
